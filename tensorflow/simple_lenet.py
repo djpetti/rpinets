@@ -84,7 +84,9 @@ class LeNetClassifier(FeedforwardNetwork):
       conv = tf.nn.conv2d(next_inputs, weights, strides=[1, 1, 1, 1],
                           padding="SAME")
       # Activation.
-      conv = tf.nn.relu(conv)
+      num_outputs = weights.get_shape()[3]
+      bias = tf.Variable(tf.constant(0.1, shape=[num_outputs]))
+      conv = tf.nn.relu(conv + bias)
       # Max pooling.
       next_inputs = tf.nn.max_pool(conv, ksize=[1, 2, 2, 1],
                                    strides=[1, 2, 2, 1], padding="SAME")
@@ -125,18 +127,18 @@ class LeNetClassifier(FeedforwardNetwork):
         tf.nn.softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
     # SGD optimizer.
-    self._optimizer = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(cost)
+    self._optimizer = tf.train.AdamOptimizer(1e-4).minimize(cost)
     # Does an actual prediction.
     self._prediction_operation = tf.argmax(self._layer_stack, 1)
 
 
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
-conv1 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
+conv1 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
                                   feature_maps=1)
-conv2 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
+conv2 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
                                   feature_maps=32)
-network = LeNetClassifier((28, 28, 1), [conv1, conv2], [7 * 7 * 512], 10)
+network = LeNetClassifier((28, 28, 1), [conv1, conv2], [7 * 7 * 64, 1024], 10)
 
 sess = tf.Session()
 init = tf.initialize_all_variables()

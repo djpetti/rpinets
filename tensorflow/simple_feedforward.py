@@ -47,7 +47,9 @@ class FeedforwardNetwork(object):
     # layer.
     next_inputs = first_inputs
     for weights in self.__weights:
-      next_inputs = tf.nn.sigmoid(tf.matmul(next_inputs, weights))
+      num_outputs = weights.get_shape()[1]
+      bias = tf.Variable(tf.constant(0.1, shape=[num_outputs]))
+      next_inputs = tf.nn.sigmoid(tf.matmul(next_inputs, weights) + bias)
 
     self._layer_stack = next_inputs
 
