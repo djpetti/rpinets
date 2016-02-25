@@ -46,10 +46,17 @@ class FeedforwardNetwork(object):
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = first_inputs
-    for weights in self.__weights:
+    for i in range(0, len(self.__weights)):
+      weights = self.__weights[i]
+
       num_outputs = weights.get_shape()[1]
       bias = tf.Variable(tf.constant(0.1, shape=[num_outputs]))
-      next_inputs = tf.nn.sigmoid(tf.matmul(next_inputs, weights) + bias)
+      sums = tf.matmul(next_inputs, weights) + bias
+      if i < len(self.__weights) - 1:
+        next_inputs = tf.nn.relu(sums)
+      else:
+        # For the last layer, we don't use an activation function.
+        next_inputs = sums
 
     self._layer_stack = next_inputs
 
