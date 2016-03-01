@@ -22,7 +22,8 @@ class LeNetClassifier(FeedforwardNetwork):
       # Number of input feature maps.
       self.feature_maps = kwargs.get("feature_maps")
 
-  def __init__(self, image_size, conv_layers, feedforward_layers, outputs):
+  def __init__(self, image_size, conv_layers, feedforward_layers, outputs,
+               batch_size=100):
     """
     Args:
       image_size: Size of the image. (width, height, channels)
@@ -30,7 +31,8 @@ class LeNetClassifier(FeedforwardNetwork):
       instances.
       feedforward_layers: A list of ints denoting the number of inputs for each
       fully-connected layer.
-      outputs: The number of outputs of the network. """
+      outputs: The number of outputs of the network.
+      batch_size: The size of each image batch. """
     # We don't call the base class constructor here, because we want it to build
     # its network on top of our convolutional part.
     self.__build_model(image_size, conv_layers, feedforward_layers, outputs)
@@ -50,7 +52,7 @@ class LeNetClassifier(FeedforwardNetwork):
       # Initialize weights randomly.
       shape = [first_layer.kernel_width, first_layer.kernel_height,
                first_layer.feature_maps, next_layer.feature_maps]
-      weights = tf.Variable(tf.random_normal(shape, stddev=0.35))
+      weights = tf.Variable(tf.random_normal(shape, stddev=1))
       self.__weights.append(weights)
 
     # Calculate our final input size based on the number of maxpoolings we do.
@@ -122,7 +124,14 @@ class LeNetClassifier(FeedforwardNetwork):
     cost = tf.reduce_mean( \
         tf.nn.softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
-    # SGD optimizer.
-    self._optimizer = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(cost)
+
+    # Learning rate decay.
+    global_step = tf.Variable(0, trainable=False)
+    start_learning_rate = 0.01
+    learning_rate = tf.train.exponential_decay(start_learning_rate, global_step,
+                                               1, 0.995)
+    # RMS optimizer.
+    self._optimizer = tf.train.RMSPropOptimizer(learning_rate, 0.9) \
+        .minimize(cost, global_step=global_step)
     # Does an actual prediction.
     self._prediction_operation = tf.argmax(self._layer_stack, 1)
