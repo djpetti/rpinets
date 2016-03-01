@@ -1,12 +1,8 @@
-#!/usr/bin/python
-
 """ A very simple LeNet implementation intended to be used for comparing
 tensorflow to other libraries. """
 
-from tensorflow.examples.tutorials.mnist import input_data
-import tensorflow as tf
 
-import numpy as np
+import tensorflow as tf
 
 from simple_feedforward import FeedforwardNetwork
 
@@ -120,37 +116,13 @@ class LeNetClassifier(FeedforwardNetwork):
 
     # Build actual layer model.
     self.__add_layers(feedforward_layers, outputs)
-
     # Now _layer_stack should contain the entire network.
+
     # Build cost function.
     cost = tf.reduce_mean( \
         tf.nn.softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
     # SGD optimizer.
-    self._optimizer = tf.train.AdamOptimizer(1e-4).minimize(cost)
+    self._optimizer = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(cost)
     # Does an actual prediction.
     self._prediction_operation = tf.argmax(self._layer_stack, 1)
-
-
-mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
-
-conv1 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
-                                  feature_maps=1)
-conv2 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
-                                  feature_maps=32)
-network = LeNetClassifier((28, 28, 1), [conv1, conv2], [7 * 7 * 64, 1024], 10)
-
-sess = tf.Session()
-init = tf.initialize_all_variables()
-sess.run(init)
-
-for i in range(20000):
-  batch = mnist.train.next_batch(50)
-  if i%100 == 0:
-    result = sess.run(network.predict(),
-        feed_dict={network.inputs(): batch[0],
-                   network.expected_outputs(): batch[1]})
-    argmax = np.argmax(batch[1], axis=1)
-    print("step %d, training accuracy %s"%(i, np.mean(argmax == result)))
-  sess.run(network.train(), feed_dict={network.inputs(): batch[0],
-                                       network.expected_outputs(): batch[1]})
