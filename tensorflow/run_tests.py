@@ -24,7 +24,9 @@ def run_mnist_test():
   conv3 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
                                     feature_maps=64)
   network = LeNetClassifier((28, 28, 1), [conv1, conv2, conv3],
-                            [4 * 4 * 128, 625], 10)
+                            [4 * 4 * 128, 625], 10, batch_size=128)
+
+  saver = tf.train.Saver()
 
   sess = tf.Session()
   init = tf.initialize_all_variables()
@@ -37,9 +39,9 @@ def run_mnist_test():
   accuracy = 0
   start_time = time.time()
   iterations = 0
-  while accuracy < 0.99:
+  while iterations < 2000:
     batch = mnist.train.next_batch(128)
-    if iterations % 100 == 0:
+    if iterations % 500 == 0:
       result = sess.run(network.predict(),
           feed_dict={network.inputs(): batch[0],
                     network.expected_outputs(): batch[1]})
@@ -51,6 +53,9 @@ def run_mnist_test():
     sess.run(network.train(), feed_dict={network.inputs(): batch[0],
                                         network.expected_outputs(): batch[1]})
     iterations += 1
+
+  # Save the network at the end.
+  saver.save(sess, "Variables/test.ckpt")
 
   elapsed = time.time() - start_time
   speed = iterations / elapsed

@@ -32,7 +32,7 @@ class FeedforwardNetwork(object):
       fan_out = layers[i + 1]
 
       # Initialize weights randomly.
-      weights = tf.Variable(tf.random_normal([fan_in, fan_out], stddev=0.35))
+      weights = tf.Variable(tf.random_normal(shape=[fan_in, fan_out], stddev=1))
       self.__weights.append(weights)
 
     # Include outputs also.
