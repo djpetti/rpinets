@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import json
 import time
 
 from tensorflow.examples.tutorials.mnist import input_data
@@ -40,22 +41,23 @@ def run_mnist_test():
   start_time = time.time()
   iterations = 0
   while iterations < 2000:
-    batch = mnist.train.next_batch(128)
     if iterations % 500 == 0:
+      test_batch = mnist.test.next_batch(128)
       result = sess.run(network.predict(),
-          feed_dict={network.inputs(): batch[0],
-                    network.expected_outputs(): batch[1]})
-      argmax = np.argmax(batch[1], axis=1)
+          feed_dict={network.inputs(): test_batch[0],
+                    network.expected_outputs(): test_batch[1]})
+      argmax = np.argmax(test_batch[1], axis=1)
       accuracy = np.mean(argmax == result)
-      print("Tensorflow: step %d, training accuracy %s" % \
+      print("Tensorflow: step %d, testing accuracy %s" % \
             (iterations, accuracy))
 
+    batch = mnist.train.next_batch(128)
     sess.run(network.train(), feed_dict={network.inputs(): batch[0],
                                         network.expected_outputs(): batch[1]})
     iterations += 1
 
   # Save the network at the end.
-  saver.save(sess, "Variables/test.ckpt")
+  #saver.save(sess, "Variables/test.ckpt")
 
   elapsed = time.time() - start_time
   speed = iterations / elapsed
@@ -65,7 +67,9 @@ def run_mnist_test():
   return (elapsed, speed)
 
 def main():
-  run_mnist_test()
+  elapsed, speed = run_mnist_test()
+  results = {"mnist": {"elapsed": elapsed, "speed": speed}}
+  print "results=%s" % (json.dumps(results))
 
 
 if __name__ == "__main__":
