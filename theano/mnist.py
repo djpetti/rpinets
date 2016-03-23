@@ -16,9 +16,12 @@ MNIST_FILE = "mnist.pkl.gz"
 
 
 class Mnist(object):
-  """ Deals with the MNIST dataset. """
-  def __init__(self):
-    self.__load()
+  """ Deals with the MNIST dataset.
+  Args:
+    use_4d: If True, it will reshape the inputs to 4D tensors for use in a CNN.
+            Defaults to False. """
+  def __init__(self, use_4d=False):
+    self.__load(use_4d)
 
   def __download_mnist(self):
     """ Downloads the mnist dataset from MNIST_URL. """
@@ -57,9 +60,12 @@ class Mnist(object):
     # lets us get around this issue
     return shared_x, TT.cast(shared_y, 'int32')
 
-  def __load(self):
+  def __load(self, use_4d):
     """ Loads mnist dataset from the disk, or downloads it first if it isn't
     present.
+    Args:
+      use_4d: If True, it will reshape the inputs to a 4D tensor for use in a
+              CNN.
     Returns:
       A training set, testing set, and a validation set. """
     if not os.path.exists(MNIST_FILE):
@@ -70,6 +76,22 @@ class Mnist(object):
     mnist_file = gzip.open(MNIST_FILE, "rb")
     train_set, test_set, valid_set = pickle.load(mnist_file)
     mnist_file.close()
+
+    # Reshape if we need to.
+    if use_4d:
+      print "Note: Using 4D tensor representation. "
+
+      train_x, train_y = train_set
+      test_x, test_y = test_set
+      valid_x, valid_y = valid_set
+
+      train_x = train_x.reshape(-1, 1, 28, 28)
+      test_x = test_x.reshape(-1, 1, 28, 28)
+      valid_x = valid_x.reshape(-1, 1, 28, 28)
+
+      train_set = (train_x, train_y)
+      test_set = (test_x, test_y)
+      valid_set = (valid_x, valid_y)
 
     self.__train_set_size = train_set[1].shape[0]
     self.__test_set_size = test_set[1].shape[0]
