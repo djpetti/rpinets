@@ -3,8 +3,7 @@
 import json
 import time
 
-import numpy as np
-
+from simple_lenet import LeNetClassifier
 from simple_feedforward import FeedforwardNetwork
 import mnist
 
@@ -14,24 +13,19 @@ def run_mnist_test():
   Returns:
     A tuple containing the total elapsed time, and the average number of
     training iterations per second. """
-  data = mnist.Mnist()
+  data = mnist.Mnist(use_4d=False)
   train = data.get_train_set()
   test = data.get_test_set()
 
-  # Reshape right off the bat to save some time.
-  #train_x = train_x.reshape(-1, 28, 28, 1)
-  #test_x = test_x.reshape(-1, 28, 28, 1)
-
-  #conv1 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-  #                                  feature_maps=1)
-  #conv2 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-  #                                  feature_maps=32)
-  #conv3 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-  #                                  feature_maps=64)
-  #network = LeNetClassifier((28, 28, 1), [conv1, conv2, conv3],
-  #                          [4 * 4 * 128, 625], 10, batch_size=128)
   batch_size = 128
-  network = FeedforwardNetwork([784, 625], 10, train, test, batch_size)
+
+  conv1 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
+                                    feature_maps=1)
+  conv2 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
+                                    feature_maps=32)
+  network = LeNetClassifier((28, 28, 1), [conv1, conv2],
+                            [4 * 4 * 128, 625], 10, train, test, batch_size)
+  #network = FeedforwardNetwork([784, 625], 10, train, test, batch_size)
 
   print("Theano: Starting MNIST test...")
 
@@ -50,7 +44,7 @@ def run_mnist_test():
 
       test_batch_index += 1
 
-    cost = network.train(train_batch_index)
+    cost = network.train(train_batch_index)[0]
     if iterations % 100 == 0:
       print "Training cost: %f" % (cost)
 

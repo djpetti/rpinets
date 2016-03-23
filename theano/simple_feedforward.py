@@ -25,7 +25,10 @@ class FeedforwardNetwork(object):
     self._test_x, self._test_y = test
     self._batch_size = batch_size
 
-    self.__print_op = theano.printing.Print("Debug print: ")
+    self._weights = []
+    self._biases = []
+
+    self._print_op = theano.printing.Print("Debug: ")
 
     self.__build_model(layers, outputs)
 
@@ -34,7 +37,7 @@ class FeedforwardNetwork(object):
     Args:
       layers: A list denoting the number of inputs of each layer.
       outputs: The number of outputs of the network. """
-    self.__weights = []
+    self.__our_weights = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
     # This is in case we have a single hidden layer.
@@ -44,14 +47,16 @@ class FeedforwardNetwork(object):
       fan_out = layers[i + 1]
 
       # Initialize weights randomly.
-      weights_values = np.random.normal(size=(fan_in, fan_out))
+      weights_values = np.asarray(np.random.normal(size=(fan_in, fan_out)),
+                                  dtype=theano.config.floatX)
       weights = theano.shared(weights_values)
-      self.__weights.append(weights)
+      self.__our_weights.append(weights)
       self.__weight_shapes.append((fan_in, fan_out))
 
     # Include outputs also.
-    weights_values = np.random.normal(size=(fan_out, outputs))
-    self.__weights.append(theano.shared(weights_values))
+    weights_values = np.asarray(np.random.normal(size=(fan_out, outputs)),
+                                dtype=theano.config.floatX)
+    self.__our_weights.append(theano.shared(weights_values))
     self.__weight_shapes.append((fan_out, outputs))
 
   def __add_layers(self, first_inputs):
@@ -59,25 +64,29 @@ class FeedforwardNetwork(object):
     __weights.
     Args:
       first_inputs: The tensor to use as inputs to the first hidden layer. """
+    our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
-    self.__biases = []
     next_inputs = first_inputs
-    for i in range(0, len(self.__weights)):
-      weights = self.__weights[i]
+    for i in range(0, len(self.__our_weights)):
+      weights = self.__our_weights[i]
       _, fan_out = self.__weight_shapes[i]
 
       bias_values = np.zeros((fan_out,), dtype=theano.config.floatX)
       bias = theano.shared(bias_values)
-      self.__biases.append(bias)
+      our_biases.append(bias)
       sums = TT.dot(next_inputs, weights) + bias
-      if i < len(self.__weights) - 1:
-        next_inputs = TT.nnet.relu(sums)
+      if i < len(self.__our_weights) - 1:
+        next_inputs = TT.nnet.sigmoid(sums)
       else:
         # For the last layer, we don't use an activation function.
         next_inputs = sums
 
     self._layer_stack = next_inputs
+    # Now that we're done building our weights, add them to the global list of
+    # weights for gradient calculation.
+    self._weights.extend(self.__our_weights)
+    self._biases.extend(our_biases)
 
   def __build_model(self, layers, outputs):
     """ Actually constructs the graph for this model.
@@ -89,7 +98,7 @@ class FeedforwardNetwork(object):
 
     # Inputs and outputs.
     num_inputs = layers[0]
-    self._inputs = TT.matrix("inputs")
+    self._inputs = TT.fmatrix("inputs")
     self._expected_outputs = TT.ivector("expected_outputs")
 
     # Build actual layer model.
@@ -122,8 +131,9 @@ class FeedforwardNetwork(object):
     Returns:
       Theano function for training the network. """
     # Compute gradients for all parameters.
-    params = self.__weights + self.__biases
-    gradients = [TT.grad(cost, param) for param in params]
+    params = self._weights + self._biases
+    gradients = TT.grad(cost, params)
+    self.__pgradients = self._print_op(gradients[0])
 
     # Tell it how to update the parameters.
     updates = []
@@ -135,7 +145,7 @@ class FeedforwardNetwork(object):
     # Create the actual function.
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
-    trainer = theano.function(inputs=[index], outputs=cost, updates=updates,
+    trainer = theano.function(inputs=[index], outputs=[cost], updates=updates,
                               givens={self._inputs: \
                                       train_x[batch_start:batch_end],
                                       self._expected_outputs: \
@@ -191,6 +201,8 @@ class FeedforwardNetwork(object):
     """
     softmax = TT.nnet.softmax(logits)
     argmax = TT.argmax(softmax, axis=1)
+    self.__pargmax = self._print_op(softmax)
+    self.__plabels = self._print_op(labels)
     cross = TT.nnet.categorical_crossentropy(softmax, labels)
     return cross
 
