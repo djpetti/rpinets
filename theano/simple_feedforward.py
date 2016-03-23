@@ -7,6 +7,8 @@ import theano.tensor as TT
 
 import numpy as np
 
+import utils
+
 
 class FeedforwardNetwork(object):
   """ A simple, fully-connected feedforward neural network. """
@@ -77,7 +79,7 @@ class FeedforwardNetwork(object):
       our_biases.append(bias)
       sums = TT.dot(next_inputs, weights) + bias
       if i < len(self.__our_weights) - 1:
-        next_inputs = TT.nnet.sigmoid(sums)
+        next_inputs = TT.nnet.relu(sums)
       else:
         # For the last layer, we don't use an activation function.
         next_inputs = sums
@@ -139,6 +141,35 @@ class FeedforwardNetwork(object):
     updates = []
     for param, gradient in zip(params, gradients):
       updates.append((param, param - learning_rate * gradient))
+
+    # Index to a minibatch.
+    index = TT.lscalar()
+    # Create the actual function.
+    batch_start = index * batch_size
+    batch_end = (index + 1) * batch_size
+    trainer = theano.function(inputs=[index], outputs=[cost], updates=updates,
+                              givens={self._inputs: \
+                                      train_x[batch_start:batch_end],
+                                      self._expected_outputs: \
+                                      train_y[batch_start:batch_end]})
+    return trainer
+
+  def _build_rmsprop_trainer(self, cost, learning_rate, rho, epsilon, train_x,
+                             train_y, batch_size):
+    """ Builds a new RMSProp trainer.
+    Args:
+      cost: The cost function we are using.
+      learning_rate: The learning rate to use for training.
+      rho: Weight decay.
+      epsilon: Shift factor for gradient scaling.
+      train_x: Training set inputs.
+      train_y: Training set expected outputs.
+      batch_size: How big our batches are.
+    Returns:
+      Theano function for training the network. """
+    params = self._weights + self._biases
+
+    updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
 
     # Index to a minibatch.
     index = TT.lscalar()
