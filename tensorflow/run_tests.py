@@ -66,7 +66,10 @@ def run_mnist_test():
       test_batch_start += batch_size
       test_batch_end += batch_size
 
-    batch = mnist.train.next_batch(128)
+      if test_batch_end > len(test_y):
+        test_batch_start = 0
+        test_batch_end = batch_size
+
     sess.run(network.train(), feed_dict={network.inputs(): \
              train_x[train_batch_start:train_batch_end],
              network.expected_outputs(): \
@@ -75,6 +78,10 @@ def run_mnist_test():
 
     train_batch_start += batch_size
     train_batch_end += batch_size
+
+    if train_batch_end > len(train_y):
+      train_batch_start = 0
+      train_batch_end = batch_size
 
   # Save the network at the end.
   #saver.save(sess, "Variables/test.ckpt")
