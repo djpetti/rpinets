@@ -1,6 +1,7 @@
 """ Deals with image acquiring and manipulation. """
 
 
+import httplib
 import logging
 import urllib2
 
@@ -23,7 +24,7 @@ def download_image(url):
 
   try:
     response = urllib2.urlopen(url, timeout=10)
-  except (urllib2.HTTPError, urllib2.URLError) as e:
+  except (urllib2.HTTPError, urllib2.URLError, httplib.BadStatusLine) as e:
     # Generally, this is because the image was not found.
     logger.warning("Image download failed with '%s'." % (e))
     return None
