@@ -9,6 +9,8 @@ import time
 
 import cv2
 
+import numpy as np
+
 import images
 
 
@@ -173,3 +175,48 @@ class DiskCache(object):
     image = cv2.imread(image_path, cv2.CV_LOAD_IMAGE_UNCHANGED)
     self.__file_accesses[image_path] = time.time()
     return image
+
+class MemoryBuffer(object):
+  """ Set of images stored contiguously in memory. This is designed so that it
+  can be used as a staging area before a batch is transferred into GPU memory.
+  """
+
+  def __init__(self, image_size, batch_size):
+    """
+    Args:
+      image_size: Size of one side of a square image.
+      batch_size: How many images are in a batch.
+    """
+    self.__image_size = image_size
+    self.__batch_size = batch_size
+    # This will be are underlying storage for the cache.
+    self.__storage = np.empty((image_size, batch_size * image_size),
+                              dtype="uint8")
+
+    self.__fill_index = 0
+    # Maps image names to indices in the underlying array.
+    self.__image_indices = {}
+
+  def add(self, image, name):
+    """ Adds a new image to the buffer.
+    Args:
+      image: The image data to add.
+      name: The name of the image. """
+    logger.debug("Adding %s to buffer at %d." % (name, self.__fill_index))
+
+    next_fill_index = self.__fill_index + self.__image_size
+    self.__storage[0:self.__image_size,
+                   self.__fill_index:next_fill_index] = image
+
+    self.__image_indices[name] = self.__fill_index
+    self.__fill_index = next_fill_index
+
+  def get(self, name):
+    """ Gets an image that was added to the buffer.
+    Args:
+      name: The name of the image.
+    Returns:
+      The image data. """
+    index = self.__image_indices[name]
+
+    return self.__storage[0:self.__image_size, index:index + self.__image_size]
