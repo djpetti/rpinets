@@ -4,6 +4,8 @@ import os
 import random
 import urllib2
 
+import cv2
+
 import cache
 import images
 
@@ -14,31 +16,47 @@ logger = logging.getLogger(__name__)
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
 
-  def __init__(self):
-    self.__cache = cache.DiskCache("image_cache", 1586113)
+  def __init__(self, synset_location):
+    """
+    Args:
+      synset_location: Where to save synsets. Will be created if it doesn't
+      exist. """
+    self.__cache = cache.DiskCache("image_cache", 50000000000)
 
-    if not self.__load_synsets():
-      self.__download_image_list()
+    self.__synset_location = synset_location
+    if not os.path.exists(self.__synset_location):
+      os.mkdir(self.__synset_location)
+
+    self.__synsets = {}
+    loaded = self.__load_synsets()
+    #self.__download_image_list(loaded)
 
     # Calculate and store sizes for each synset.
     self.__synset_sizes = {}
     for synset, urls in self.__synsets.iteritems():
       self.__synset_sizes[synset] = len(urls)
 
-  def __download_image_list(self):
-    """ Downloads a comprehensive list of all images available. """
+  def __download_image_list(self, loaded):
+    """ Downloads a comprehensive list of all images available.
+    Args:
+      loaded: Set of synsets that were already loaded successfully. """
     logger.info("Downloading list of synsets...")
     url = "http://www.image-net.org/api/text/imagenet.synset.obtain_synset_list"
     response = urllib2.urlopen(url, timeout=1000)
-    synsets = response.read().split("\n")[:2]
-    logger.debug("Got synsets: %s", synsets)
+    synsets = set(response.read().split("\n")[:-1])
+
+    # Remove any that were already loaded.
+    synsets = synsets - loaded
+    logger.debug("Downloading synsets: %s", synsets)
 
     # Get the urls for each synset.
-    self.__synsets = {}
     base_url = \
         "http://www.image-net.org/api/text/" \
         "imagenet.synset.geturls.getmapping?wnid=%s"
     for synset in synsets:
+      if not synset:
+        continue
+
       logger.info("Downloading urls for synset: %s", synset)
       response = urllib2.urlopen(base_url % (synset), timeout=1000)
       lines = response.read().split("\n")[:-1]
@@ -48,34 +66,43 @@ class ImageGetter(object):
         if not line.startswith(synset):
           # Bad line.
           continue
-        wnid, url = line.split()
+        wnid, url = line.split(" ", 1)
         mappings.append([wnid, url])
       self.__synsets[synset] = mappings
+      # Save it for later.
+      self.__save_synset(synset)
 
-    # Save them for later.
-    self.__save_synsets()
+  def __save_synset(self, synset):
+    """ Saves a synset to a file.
+    Args:
+      synset: The name of the synset. """
+    logging.info("Saving synset: %s" % (synset))
 
-  def __save_synsets(self):
-    """ Saves synsets to a file. """
-    logging.info("Saving synsets.")
-
-    synset_file = open("synsets.json", "w")
-    json.dump(self.__synsets, synset_file)
+    synset_path = os.path.join(self.__synset_location, "%s.json" % (synset))
+    synset_file = open(synset_path, "w")
+    json.dump(self.__synsets[synset], synset_file)
     synset_file.close()
 
   def __load_synsets(self):
     """ Loads synsets from a file.
     Returns:
-      True if the data was loaded successfully, False otherwise. """
-    if not os.path.exists("synsets.json"):
-      return False
+      A set of the synsets that were loaded successfully. """
 
-    logging.info("Loading synsets.")
-    synset_file = open("synsets.json")
-    self.__synsets = json.load(synset_file)
-    synset_file.close()
+    loaded = set([])
+    for path in os.listdir(self.__synset_location):
+      if path.endswith(".json"):
+        # Load synset from file.
+        synset_name = path[:-5]
+        logger.info("Loading synset %s." % (synset_name))
+        full_path = os.path.join(self.__synset_location, path)
 
-    return True
+        synset_file = file(full_path)
+        self.__synsets[synset_name] = json.load(synset_file)
+        synset_file.close()
+
+        loaded.add(synset_name)
+
+    return loaded
 
   def __pick_random_image(self):
     """ Picks a random image from our database.
@@ -121,9 +148,10 @@ class ImageGetter(object):
         self.__synsets[synset].remove([wnid, url])
         self.__synset_sizes[synset] -= 1
         # Update the json file.
-        self.__save_synsets()
+        self.__save_synset(synset)
         continue
 
+      cv2.imshow("loading", image)
       batch.append(image)
 
     return batch

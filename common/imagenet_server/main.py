@@ -22,7 +22,7 @@ def main():
   root.addHandler(stream_handler)
 
   root.info("Starting...")
-  getter = image_getter.ImageGetter()
+  getter = image_getter.ImageGetter("synsets")
   batch = getter.get_random_batch(10)
   for image in batch:
     cv2.imshow("test", image)
