@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
+  # Minimum synset size to use.
+  MINIMUM_SYNSET_SIZE = 500
 
   def __init__(self, synset_location):
     """
@@ -71,6 +73,62 @@ class ImageGetter(object):
       self.__synsets[synset] = mappings
       # Save it for later.
       self.__save_synset(synset)
+
+  def condense_loaded_synsets(self):
+    """ Using is-a relationships obtained from ImageNet, it combines smaller
+    synsets until only ones that have a sufficient amount of data remain. """
+    logger.info("Condensing synsets...")
+
+    # First, download the list of is-a relationships.
+    url = "http://www.image-net.org/archive/wordnet.is_a.txt"
+    response = urllib2.urlopen(url)
+    lines = response.read().split("\n")[:-1]
+
+    # Convert to actual mappings. Here, the keys are a synset, and the values
+    # are what that synset is.
+    mappings = {}
+    for line in lines:
+      if not line:
+        # Bad line.
+        continue
+      sup, sub = line.split()
+      mappings[sub] = sup
+
+    # Now, go through our synsets and combine any that are too small.
+    while True:
+      sizes_to_remove = []
+      for synset, size in self.__synset_sizes.iteritems():
+        merged_at_least_one = False
+        if size < self.MINIMUM_SYNSET_SIZE:
+          if synset in mappings:
+            # Combine with superset.
+            superset = mappings[synset]
+            if superset not in self.__synsets:
+              logger.warning("Superset %s is not loaded!" % (superset))
+            else:
+              logger.info("Merging %s with %s." % (synset, superset))
+
+              # It looks like synsets don't by default include sub-synsets.
+              self.__synsets[superset].extend(self.__synsets[synset])
+              self.__synset_sizes[superset] += self.__synset_sizes[synset]
+              logger.debug("New superset size: %d." % \
+                          (self.__synset_sizes[superset]))
+
+          # Delete it since it's too small.
+          logger.info("Deleting %s with size %d." % (synset, size))
+          self.__synsets.pop(synset)
+          # We can't pop items from the dictionary while we're iterating.
+          sizes_to_remove.append(synset)
+
+          merged_at_least_one = True
+
+      for synset in sizes_to_remove:
+        self.__synset_sizes.pop(synset)
+
+      if not merged_at_least_one:
+        # We're done here.
+        logger.info("Finished merging synsets.")
+        break
 
   def __save_synset(self, synset):
     """ Saves a synset to a file.
@@ -152,6 +210,8 @@ class ImageGetter(object):
         continue
 
       cv2.imshow("loading", image)
+      # Force it to update the window.
+      cv2.waitKey(1)
       batch.append(image)
 
     return batch
