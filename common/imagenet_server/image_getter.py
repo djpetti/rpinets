@@ -49,6 +49,7 @@ class ImageGetter(object):
 
     # Remove any that were already loaded.
     synsets = synsets - loaded
+    logger.info("Downloading %d synsets." % (len(synsets)))
     logger.debug("Downloading synsets: %s", synsets)
 
     # Get the urls for each synset.
@@ -64,15 +65,25 @@ class ImageGetter(object):
       lines = response.read().split("\n")[:-1]
       # Split ids and urls.
       mappings = []
+      utf_mappings = []
       for line in lines:
         if not line.startswith(synset):
           # Bad line.
           continue
+
         wnid, url = line.split(" ", 1)
+        try:
+          unicode_url = url.decode("utf8")
+        except UnicodeDecodeError:
+          # We got a URL that's not valid unicode. (It does happen.)
+          logger.warning("Skipping invalid URL: %s", url)
+          continue
+
         mappings.append([wnid, url])
+        utf_mappings.append([wnid, unicode_url])
       self.__synsets[synset] = mappings
       # Save it for later.
-      self.__save_synset(synset)
+      self.__save_synset(synset, utf_mappings)
 
   def condense_loaded_synsets(self):
     """ Using is-a relationships obtained from ImageNet, it combines smaller
@@ -130,15 +141,16 @@ class ImageGetter(object):
         logger.info("Finished merging synsets.")
         break
 
-  def __save_synset(self, synset):
+  def __save_synset(self, synset, data):
     """ Saves a synset to a file.
     Args:
-      synset: The name of the synset. """
-    logging.info("Saving synset: %s" % (synset))
+      synset: The name of the synset.
+      data: The data that will be saved in the file. """
+    logger.info("Saving synset: %s" % (synset))
 
     synset_path = os.path.join(self.__synset_location, "%s.json" % (synset))
     synset_file = open(synset_path, "w")
-    json.dump(self.__synsets[synset], synset_file)
+    json.dump(data, synset_file)
     synset_file.close()
 
   def __load_synsets(self):
@@ -155,7 +167,9 @@ class ImageGetter(object):
         full_path = os.path.join(self.__synset_location, path)
 
         synset_file = file(full_path)
-        self.__synsets[synset_name] = json.load(synset_file)
+        # Storing stuff in unicode takes up a massive amount of memory.
+        self.__synsets[synset_name] = \
+            [str(elem) for elem in json.load(synset_file)]
         synset_file.close()
 
         loaded.add(synset_name)
