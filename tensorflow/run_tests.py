@@ -17,8 +17,13 @@ def run_mnist_test():
     A tuple containing the total elapsed time, and the average number of
     training iterations per second. """
   mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+  train_x, train_y = mnist.train.images, mnist.train.labels,
+  test_x, test_y = mnist.test.images, mnist.test.labels
+  # Reshape right off the bat to save some time.
+  train_x = train_x.reshape(-1, 28, 28, 1)
+  test_x = test_x.reshape(-1, 28, 28, 1)
 
-  conv1 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
+  conv1 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
                                     feature_maps=1)
   conv2 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
                                     feature_maps=32)
