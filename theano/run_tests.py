@@ -23,7 +23,8 @@ def run_mnist_test():
                                     feature_maps=1)
   conv2 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
                                     feature_maps=32)
-  network = LeNetClassifier((28, 28, 1), [conv1, conv2],
+  pool = LeNetClassifier.PoolLayer()
+  network = LeNetClassifier((28, 28, 1), [conv1, pool, conv2, pool],
                             [5 * 5 * 128, 625], 10, train, test, batch_size)
   #network = FeedforwardNetwork([784, 625], 10, train, test, batch_size)
 

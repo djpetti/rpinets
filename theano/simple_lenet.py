@@ -26,6 +26,17 @@ class LeNetClassifier(FeedforwardNetwork):
       # Number of input feature maps.
       self.feature_maps = kwargs.get("feature_maps")
 
+  class PoolLayer(object):
+    """ A simple class to handle the specification of maxpooling layers. """
+
+    def __init__(self, *args, **kwargs):
+      # Maxpooling kernel size. (Defaults to 2x2.)
+      self.kernel_width = kwargs.get("kernel_width", 2)
+      self.kernel_height = kwargs.get("kernel_height", 2)
+      # Maxpooling stride size. (Defaults to the same as the kernel.)
+      self.stride_width = kwargs.get("stride_width", self.kernel_width)
+      self.stride_height = kwargs.get("stride_height", self.kernel_height)
+
   def __init__(self, image_size, conv_layers, feedforward_layers, outputs,
                train, test, batch_size):
     """
@@ -34,8 +45,8 @@ class LeNetClassifier(FeedforwardNetwork):
     input_columns)
     Args:
       image_size: Size of the image. (width, height, channels)
-      conv_layers: A list of convolutional layers, composed of ConvLayer
-      instances.
+      conv_layers: A list of convolutional layers and maxpooling layers,
+      composed of ConvLayer and PoolLayer instances.
       feedforward_layers: A list of ints denoting the number of inputs for each
       fully-connected layer.
       outputs: The number of outputs of the network.
@@ -61,17 +72,22 @@ class LeNetClassifier(FeedforwardNetwork):
     """ Initializes tensors containing the weights for each convolutional layer.
     Args:
       image_size: The size of the input image.
-      conv_layers: A list of ConvLayer instances describing all the
-      convolutional layers.
+      conv_layers: A list of ConvLayer and PoolLayer instances describing all
+      the convolutional layers.
       feedforward_inputs: The number of inputs in the first feedforward layer. """
     image_x, image_y, channels = image_size
 
     self.__our_weights = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
-    for i in range(0, len(conv_layers) - 1):
-      first_layer = conv_layers[i]
-      next_layer = conv_layers[i + 1]
+    # Extract only convolutional layers.
+    only_convolution = []
+    for layer in conv_layers:
+      if isinstance(layer, self.ConvLayer):
+        only_convolution.append(layer)
+    for i in range(0, len(only_convolution) - 1):
+      first_layer = only_convolution[i]
+      next_layer = only_convolution[i + 1]
 
       # Initialize weights randomly.
       shape = [next_layer.feature_maps, first_layer.feature_maps,
@@ -88,11 +104,13 @@ class LeNetClassifier(FeedforwardNetwork):
     output_shape = (image_x, image_y)
     # Calculate shape of output.
     for layer in conv_layers:
-      out_shape_x = output_shape[0] - layer.kernel_width + 1
-      out_shape_y = output_shape[1] - layer.kernel_height + 1
-      # Factor in maxpooling.
-      out_shape_x /= 2
-      out_shape_y /= 2
+      if isinstance(layer, self.ConvLayer):
+        out_shape_x = output_shape[0] - layer.kernel_width + 1
+        out_shape_y = output_shape[1] - layer.kernel_height + 1
+      else:
+        # Factor in maxpooling.
+        out_shape_x /= 2
+        out_shape_y /= 2
       output_shape = (out_shape_x, out_shape_y)
 
     # Add last convolutional layer weights.
@@ -109,10 +127,12 @@ class LeNetClassifier(FeedforwardNetwork):
     self._pweights = self._print_op(weights)
     self.__our_weights.append(weights)
 
-  def __add_layers(self, feedforward_layers, outputs):
+  def __add_layers(self, conv_layers, feedforward_layers, outputs):
     """ Adds as many convolutional layers to our model as there are elements in
     __weights.
     Args:
+      conv_layers: A list containing specs for the convolution and maxpooling
+      layers.
       feedforward_layers: A list denoting the number of inputs for each
       feedforward layer.
       outputs: The number of outputs of the network. """
@@ -120,22 +140,28 @@ class LeNetClassifier(FeedforwardNetwork):
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = self._reshaped_inputs
-    for i in range(0, len(self.__our_weights)):
-      weights = self.__our_weights[i]
-      output_feature_maps, _, _, _ = self.__weight_shapes[i]
+    weight_index = 0
+    for layer_spec in conv_layers:
+      if isinstance(layer_spec, self.ConvLayer):
+        # Convolution.
+        weights = self.__our_weights[weight_index]
+        output_feature_maps, _, _, _ = self.__weight_shapes[weight_index]
+        weight_index += 1
 
-      # Convolution.
-      conv = TT.nnet.conv2d(next_inputs, weights, subsample=(1, 1),
-                            border_mode="valid")
-      # Activation.
-      bias_values = np.zeros((output_feature_maps,), dtype=theano.config.floatX)
-      bias = theano.shared(bias_values)
-      our_biases.append(bias)
-      conv = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
-      # Max pooling.
-      next_inputs = pool.pool_2d(conv, (2, 2),
-                                 ignore_border=True,
-                                 st=(2, 2))
+        conv = TT.nnet.conv2d(next_inputs, weights, subsample=(1, 1),
+                              border_mode="valid")
+        # Activation.
+        bias_values = np.zeros((output_feature_maps,), dtype=theano.config.floatX)
+        bias = theano.shared(bias_values)
+        our_biases.append(bias)
+        next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
+      else:
+        # Max pooling.
+        kernel_size = (layer_spec.kernel_width, layer_spec.kernel_height)
+        stride_size = (layer_spec.stride_width, layer_spec.stride_height)
+        next_inputs = pool.pool_2d(next_inputs, kernel_size,
+                                  ignore_border=True,
+                                  st=stride_size)
 
     # Reshape convolution outputs so they can be used as inputs to the
     # feedforward network.
@@ -168,7 +194,7 @@ class LeNetClassifier(FeedforwardNetwork):
     self._expected_outputs = TT.ivector("expected_outputs")
 
     # Build actual layer model.
-    self.__add_layers(feedforward_layers, outputs)
+    self.__add_layers(conv_layers, feedforward_layers, outputs)
     # Now _layer_stack should contain the entire network.
 
     # Build cost function.
