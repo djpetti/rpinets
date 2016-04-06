@@ -181,17 +181,22 @@ class MemoryBuffer(object):
   can be used as a staging area before a batch is transferred into GPU memory.
   """
 
-  def __init__(self, image_size, batch_size):
+  def __init__(self, image_size, batch_size, color=False):
     """
     Args:
       image_size: Size of one side of a square image.
       batch_size: How many images are in a batch.
+      color: If true, assume the images are in color, otherwise, they are not.
     """
     self.__image_size = image_size
     self.__batch_size = batch_size
     # This will be are underlying storage for the cache.
-    self.__storage = np.empty((image_size, batch_size * image_size),
-                              dtype="uint8")
+    if color:
+      self.__channels = 3
+    else:
+      self.__channels = 1
+    shape = (image_size, batch_size * image_size, self.__channels)
+    self.__storage = np.empty(shape, dtype="uint8")
 
     self.__fill_index = 0
     # Maps image names to indices in the underlying array.
@@ -206,7 +211,8 @@ class MemoryBuffer(object):
 
     next_fill_index = self.__fill_index + self.__image_size
     self.__storage[0:self.__image_size,
-                   self.__fill_index:next_fill_index] = image
+                   self.__fill_index:next_fill_index,
+                   0:self.__channels] = image
 
     self.__image_indices[name] = self.__fill_index
     self.__fill_index = next_fill_index
@@ -219,7 +225,8 @@ class MemoryBuffer(object):
       The image data. """
     index = self.__image_indices[name]
 
-    return self.__storage[0:self.__image_size, index:index + self.__image_size]
+    return self.__storage[0:self.__image_size, index:index + self.__image_size,
+                          0:self.__channels]
 
   def get_storage(self):
     """ Returns the entire buffer, so that it can be bulk-loaded. """

@@ -20,7 +20,7 @@ from common.imagenet_server import cache
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 
-ILSVRC12_LOCATION = "~/datasets/ilsvrc12"
+ILSVRC12_LOCATION = "/home/daniel/datasets/ilsvrc12"
 
 
 class Loader(object):
@@ -158,3 +158,102 @@ class Mnist(Loader):
     self._shared_dataset(test_set, self._shared_test_set)
     self._shared_dataset(valid_set, self._shared_valid_set)
     print "Done."
+
+class Ilsvrc12(Loader):
+  """ Loads ILSVRC12 data that's saved to the disk. """
+  def __init__(self, batch_size, load_batches, use_4d=False):
+    """
+    Args:
+      load_batches: How many batches to have in VRAM at any given time.
+      batch_size: How many images are in each batch.
+      use_4d: If True, will reshape the inputs for use in a CNN. Defaults to
+              False. """
+    super(Ilsvrc12, self).__init__()
+
+    self.__use_4d = use_4d
+
+    self.__batch_size = batch_size
+    self.__load_batches = load_batches
+    self.__buffer = cache.MemoryBuffer(256,
+                                       self.__batch_size * self.__load_batches,
+                                       color=True)
+
+    # Labels have to be integers, so that means we have to map synsets to
+    # integers.
+    self.__synets = {}
+    self.__current_label = 0
+
+  def __load_random_image(self):
+    """ Loads a random image from the dataset.
+    Returns:
+      The image, and the synset that the image belongs to. """
+    base_path = os.path.join(ILSVRC12_LOCATION, "train")
+
+    while True:
+      # Choose a synset.
+      possible_synsets = os.listdir(base_path)
+      synset = possible_synsets[random.randint(0, len(possible_synsets) - 1)]
+
+      # Choose an image.
+      synset_path = os.path.join(base_path, synset)
+      possible_images = os.listdir(synset_path)
+      image = possible_images[random.randint(0, len(possible_images) - 1)]
+
+      # Open the image.
+      image_path = os.path.join(synset_path, image)
+      image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+
+      if image == None:
+        print "WARNING: Failed to load image: %s" % (image_path)
+        continue
+
+      return (image, synset)
+
+  def __load_new_set(self):
+    """ Loads images from the disk into memory.
+    Returns:
+      The images from the new set, and the labels. """
+    print "Loading new batches..."
+    self.__buffer.clear()
+
+    # Load data from disk.
+    labels = []
+    for i in range(0, self.__batch_size * self.__load_batches):
+      image, synset = self.__load_random_image()
+      self.__buffer.add(image, i)
+
+      # Find a label.
+      if synset in self.__synets:
+        label = self.__synets[synset]
+      else:
+        # We need a new label.
+        label = self.__current_label
+        self.__synets[synset] = label
+        self.__current_label += 1
+      labels.append(label)
+
+    self._train_set_size = self.__batch_size * self.__load_batches
+    self._test_set_size = self.__batch_size * self.__load_batches
+    self._valid_set_size = 0
+
+    print "Done."
+
+    images = self.__buffer.get_storage()
+    # Reshape the images if need be.
+    if self.__use_4d:
+       images = images.reshape(-1, 3, 256, 256)
+
+    return (images, np.asarray(labels))
+
+  def get_train_set(self):
+    # Load a new set for it.
+    dataset = self.__load_new_set()
+    self._shared_dataset(dataset, self._shared_train_set)
+
+    return super(Ilsvrc12, self).get_train_set()
+
+  def get_test_set(self):
+    dataset = self.__load_new_set()
+    self._shared_dataset(dataset, self._shared_test_set)
+
+    return super(Ilsvrc12, self).get_test_set()

@@ -25,6 +25,9 @@ class LeNetClassifier(FeedforwardNetwork):
       self.kernel_height = kwargs.get("kernel_height")
       # Number of input feature maps.
       self.feature_maps = kwargs.get("feature_maps")
+      # Stride size for convolution. (Defaults to (1, 1))
+      self.stride_width = kwargs.get("stride_width", 1)
+      self.stride_height = kwargs.get("stride_height", 1)
 
   class PoolLayer(object):
     """ A simple class to handle the specification of maxpooling layers. """
@@ -139,7 +142,7 @@ class LeNetClassifier(FeedforwardNetwork):
     our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
-    next_inputs = self._reshaped_inputs
+    next_inputs = self._inputs
     weight_index = 0
     for layer_spec in conv_layers:
       if isinstance(layer_spec, self.ConvLayer):
@@ -148,7 +151,9 @@ class LeNetClassifier(FeedforwardNetwork):
         output_feature_maps, _, _, _ = self.__weight_shapes[weight_index]
         weight_index += 1
 
-        conv = TT.nnet.conv2d(next_inputs, weights, subsample=(1, 1),
+        conv = TT.nnet.conv2d(next_inputs, weights,
+                              subsample=(layer_spec.stride_width,
+                                         layer_spec.stride_height),
                               border_mode="valid")
         # Activation.
         bias_values = np.zeros((output_feature_maps,), dtype=theano.config.floatX)
@@ -189,8 +194,7 @@ class LeNetClassifier(FeedforwardNetwork):
     self.__initialize_weights(image_size, conv_layers, num_inputs)
 
     # Inputs and outputs.
-    self._inputs = TT.fmatrix("inputs")
-    self._reshaped_inputs = self._inputs.reshape((self._batch_size, 1, 28, 28))
+    self._inputs = TT.ftensor4("inputs")
     self._expected_outputs = TT.ivector("expected_outputs")
 
     # Build actual layer model.
