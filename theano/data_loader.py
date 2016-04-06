@@ -183,6 +183,8 @@ class Ilsvrc12(Loader):
     self.__synets = {}
     self.__current_label = 0
 
+    self.__mean = None
+
   def __load_random_image(self):
     """ Loads a random image from the dataset.
     Returns:
@@ -236,12 +238,21 @@ class Ilsvrc12(Loader):
     self._test_set_size = self.__batch_size * self.__load_batches
     self._valid_set_size = 0
 
-    print "Done."
-
     images = self.__buffer.get_storage()
     # Reshape the images if need be.
     if self.__use_4d:
        images = images.reshape(-1, 3, 256, 256)
+
+    # In leiu of actually reading all the images and finding the mean, we
+    # basically take the mean of an SRS.
+    if self.__mean == None:
+      self.__mean = np.mean(images)
+      print "Using mean: %f" % (self.__mean)
+    images = images.astype(theano.config.floatX)
+    # Standard AlexNet procedure is to subtract the mean.
+    images -= self.__mean
+
+    print "Done."
 
     return (images, np.asarray(labels))
 
