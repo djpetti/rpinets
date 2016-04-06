@@ -3,9 +3,9 @@
 import json
 import time
 
+import data_loader
 from simple_lenet import LeNetClassifier
 from simple_feedforward import FeedforwardNetwork
-import mnist
 
 
 def run_mnist_test():
@@ -13,7 +13,7 @@ def run_mnist_test():
   Returns:
     A tuple containing the total elapsed time, and the average number of
     training iterations per second. """
-  data = mnist.Mnist(use_4d=False)
+  data = data_loader.Mnist(use_4d=False)
   train = data.get_train_set()
   test = data.get_test_set()
 
