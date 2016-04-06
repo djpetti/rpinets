@@ -220,3 +220,12 @@ class MemoryBuffer(object):
     index = self.__image_indices[name]
 
     return self.__storage[0:self.__image_size, index:index + self.__image_size]
+
+  def get_storage(self):
+    """ Returns the entire buffer, so that it can be bulk-loaded. """
+    return self.__storage
+
+  def clear(self):
+    """ Deletes everything in the cache. """
+    self.__fill_index = 0
+    self.__image_indices = {}
