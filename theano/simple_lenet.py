@@ -9,6 +9,7 @@ import theano.tensor.signal.pool as pool
 import numpy as np
 
 from simple_feedforward import FeedforwardNetwork
+import utils
 
 
 class LeNetClassifier(FeedforwardNetwork):
@@ -40,6 +41,16 @@ class LeNetClassifier(FeedforwardNetwork):
       self.stride_width = kwargs.get("stride_width", self.kernel_width)
       self.stride_height = kwargs.get("stride_height", self.kernel_height)
 
+  class NormalizationLayer(object):
+    """ Performs local response normalization, as described in the AlexNet
+    paper. """
+
+    def __init__(self, *args, **kwargs):
+      self.depth_radius = kwargs.get("depth_radius", 5)
+      self.alpha = kwargs.get("alpha", 1.0)
+      self.beta = kwargs.get("beta", 0.5)
+      self.bias = kwargs.get("bias", 1.0)
+
   def __init__(self, image_size, conv_layers, feedforward_layers, outputs,
                train, test, batch_size):
     """
@@ -49,7 +60,7 @@ class LeNetClassifier(FeedforwardNetwork):
     Args:
       image_size: Size of the image. (width, height, channels)
       conv_layers: A list of convolutional layers and maxpooling layers,
-      composed of ConvLayer and PoolLayer instances.
+      composed of ConvLayer, NormalizationLayer and PoolLayer instances.
       feedforward_layers: A list of ints denoting the number of inputs for each
       fully-connected layer.
       outputs: The number of outputs of the network.
@@ -75,8 +86,8 @@ class LeNetClassifier(FeedforwardNetwork):
     """ Initializes tensors containing the weights for each convolutional layer.
     Args:
       image_size: The size of the input image.
-      conv_layers: A list of ConvLayer and PoolLayer instances describing all
-      the convolutional layers.
+      conv_layers: A list of ConvLayer, PoolLayer and NormalizationLayer
+      instances describing all the convolutional layers.
       feedforward_inputs: The number of inputs in the first feedforward layer. """
     image_x, image_y, channels = image_size
 
@@ -110,10 +121,10 @@ class LeNetClassifier(FeedforwardNetwork):
       if isinstance(layer, self.ConvLayer):
         out_shape_x = output_shape[0] - layer.kernel_width + 1
         out_shape_y = output_shape[1] - layer.kernel_height + 1
-      else:
+      elif isinstance(layer, self.PoolLayer):
         # Factor in maxpooling.
-        out_shape_x /= 2
-        out_shape_y /= 2
+        out_shape_x /= layer.stride_width
+        out_shape_y /= layer.stride_height
       output_shape = (out_shape_x, out_shape_y)
 
     # Add last convolutional layer weights.
@@ -160,6 +171,13 @@ class LeNetClassifier(FeedforwardNetwork):
         bias = theano.shared(bias_values)
         our_biases.append(bias)
         next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
+
+      elif isinstance(layer_spec, self.NormalizationLayer):
+        # Local normalization.
+        next_inputs = utils.local_response_normalization(next_inputs,
+            layer_spec.depth_radius, layer_spec.bias, layer_spec.alpha,
+            layer_spec.beta)
+
       else:
         # Max pooling.
         kernel_size = (layer_spec.kernel_width, layer_spec.kernel_height)

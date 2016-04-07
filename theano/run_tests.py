@@ -81,22 +81,20 @@ def run_imagenet_test():
   conv1 = LeNetClassifier.ConvLayer(kernel_width=11, kernel_height=11,
                                     stride_width=4, stride_height=4,
                                     feature_maps=3)
-  pool1 = LeNetClassifier.PoolLayer(kernel_width=3, kernel_height=3,
-                                    stride_width=2, stride_height=2)
   conv2 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
                                     feature_maps=96)
-  pool2 = LeNetClassifier.PoolLayer(kernel_width=3, kernel_height=3,
-                                    stride_width=2, stride_height=2)
   conv3 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
                                     feature_maps=256)
   conv4 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
                                     feature_maps=384)
   conv5 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
                                     feature_maps=384)
-  pool5 = LeNetClassifier.PoolLayer(kernel_width=3, kernel_height=3,
-                                    stride_width=2, stride_height=2)
-  network = LeNetClassifier((28, 28, 1), [conv1, pool1, conv2, pool2, conv3,
-                                          conv4, conv5, pool5],
+  pool = LeNetClassifier.PoolLayer(kernel_width=3, kernel_height=3,
+                                   stride_width=2, stride_height=2)
+  norm = LeNetClassifier.NormalizationLayer(depth_radius=3, alpha=2e-05,
+                                            beta=0.75, bias=1.0)
+  network = LeNetClassifier((28, 28, 1), [conv1, norm, pool, conv2, norm,
+                                          pool, conv3, conv4, conv5, pool],
                             [4096, 4096], 1000, train, test, batch_size)
 
   print("Theano: Starting ImageNet test...")

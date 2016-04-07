@@ -25,3 +25,31 @@ def rmsprop(cost, params, lr, rho, epsilon):
     updates.append((acc, acc_new))
     updates.append((p, p - lr * g))
   return updates
+
+def local_response_normalization(data, depth_radius, bias, alpha, beta):
+  """ Local response normalization, as described in the AlexNet paper.
+
+  The 4D input tensor is interpreted as a 3D tensor of 1D vectors (Along the
+  second dimension, as these are our feature maps that we want to normalize
+  accross), and each vector is normalized independently.
+  Args:
+    data: The input data to use.
+    depth_radius: Half-width of the 1D normalization window.
+    bias: An offset.
+    alpha: A scale factor.
+    beta: An exponent. """
+  half = depth_radius // 2
+  # Square input data.
+  square = TT.sqr(data)
+
+  batch, maps, x, y = data.shape
+  extra_channels = TT.alloc(0, batch, maps + 2 * half, x, y)
+  square = TT.set_subtensor(extra_channels[:, half:half + maps, :, :], square)
+
+  # Compute our scaling factor.
+  scale = bias
+  for i in range(depth_radius):
+    scale += alpha * square[:, i:i + maps, :, :]
+  scale = scale ** beta
+
+  return data / scale
