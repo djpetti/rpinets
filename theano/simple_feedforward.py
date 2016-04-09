@@ -23,16 +23,30 @@ class FeedforwardNetwork(object):
       train: Training dataset, should be pair of inputs and expected outputs.
       test: Testing dataset, should be pair of inputs and expected outputs.
       batch_size: The size of each minibatch. """
+    self._initialize_variables(train, test, batch_size)
+    self.__build_model(layers, outputs)
+
+  def _initialize_variables(self, train, test, batch_size):
+    """ Initializes variables that are common to all subclasses.
+    Args:
+      train: Training set.
+      test: Testing set.
+      batch_size: Size of each minibatch. """
     self._train_x, self._train_y = train
     self._test_x, self._test_y = test
     self._batch_size = batch_size
 
+    # These are the weights and biases that will be used for calculating
+    # gradients.
     self._weights = []
     self._biases = []
 
-    self._print_op = theano.printing.Print("Debug: ")
+    self._optimizer = None
+    # A global step to use for learning rate decays.
+    value = np.asarray(0).astype(theano.config.floatX)
+    self._global_step = theano.shared(value)
 
-    self.__build_model(layers, outputs)
+    self._print_op = theano.printing.Print("Debug: ")
 
   def __initialize_weights(self, layers, outputs):
     """ Initializes tensors containing the weights for each layer.
@@ -107,12 +121,9 @@ class FeedforwardNetwork(object):
     self.__add_layers(self._inputs)
 
     # Cost function.
-    cost = TT.mean( \
+    self._cost = TT.mean( \
         self._softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
-    # SGD optimizer.
-    self._optimizer = self._build_sgd_trainer(cost, 0.05, self._train_x,
-                                              self._train_y, self._batch_size)
 
     # Does an actual prediction.
     self._prediction_operation = self._build_predictor(self._test_x,
@@ -141,13 +152,17 @@ class FeedforwardNetwork(object):
     updates = []
     for param, gradient in zip(params, gradients):
       updates.append((param, param - learning_rate * gradient))
+    # Update the global step too.
+    increment = theano.shared(np.asarray(1.0).astype(theano.config.floatX))
+    updates.append((self._global_step, self.__global_step + increment))
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
-    trainer = theano.function(inputs=[index], outputs=[cost], updates=updates,
+    trainer = theano.function(inputs=[index], outputs=[cost, self._print_lr],
+                              updates=updates,
                               givens={self._inputs: \
                                       train_x[batch_start:batch_end],
                                       self._expected_outputs: \
@@ -170,13 +185,17 @@ class FeedforwardNetwork(object):
     params = self._weights + self._biases
 
     updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
+    # Update the global step too.
+    increment = theano.shared(np.asarray(1.0).astype(theano.config.floatX))
+    updates.append((self._global_step, self._global_step + increment))
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
-    trainer = theano.function(inputs=[index], outputs=[cost], updates=updates,
+    trainer = theano.function(inputs=[index], outputs=[cost, self._print_lr],
+                              updates=updates,
                               givens={self._inputs: \
                                       train_x[batch_start:batch_end],
                                       self._expected_outputs: \
@@ -248,6 +267,42 @@ class FeedforwardNetwork(object):
     self.__initialize_weights(layers, outputs)
     self.__add_layers(inputs)
 
+  def use_sgd_trainer(self, learning_rate, decay_rate=1, decay_steps=0):
+    """ Tells it to use SGD to train the network.
+    Args:
+      learning_rate: The learning rate to use for training.
+      decay_rate: An optional exponential decay rate for the learning rate.
+      decay_steps: An optinal number of steps to decay in. """
+    # Handle learning rate decay.
+    decayed_learning_rate = \
+        utils.exponential_decay(learning_rate, self._global_step, decay_steps,
+                                decay_rate)
+    self._print_lr = self._print_op(decayed_learning_rate)
+
+    self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
+                                              self._train_x, self._train_y,
+                                              self._batch_size)
+
+  def use_rmsprop_trainer(self, learning_rate, rho, epsilon, decay_rate=1,
+                          decay_steps=0):
+    """ Tells it to use RMSProp to train the network.
+    Args:
+      learning_rate: The learning rate to use for training.
+      rho: Weight decay.
+      epsilon: Shift factor for gradient scaling.
+      decay_rate: An optinal exponential decay rate for the learning rate.
+      decay_steps: An optional number of steps to decay in. """
+    # Handle learning rate decay.
+    decayed_learning_rate = \
+        utils.exponential_decay(learning_rate, self._global_step, decay_steps,
+                                decay_rate)
+    self._print_lr = self._print_op(decayed_learning_rate)
+
+    self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
+                                                  rho, epsilon, self._train_x,
+                                                  self._train_y,
+                                                  self._batch_size)
+
   @property
   def predict(self):
     """ Runs an actual prediction step for the network. It is intended that
@@ -258,10 +313,13 @@ class FeedforwardNetwork(object):
 
   @property
   def train(self):
-    """ Runs an SGD training step for the network. It is intended that the
+    """ Runs an training step for the network. It is intended that the
     result here get passed as the target of Session.run().
     Returns:
       The training operation. """
+    if not self._optimizer:
+      raise RuntimeError("No trainer is configured!")
+
     return self._optimizer
 
   @property

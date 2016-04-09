@@ -74,6 +74,13 @@ def run_imagenet_test():
   # How many batches to have loaded into VRAM at once.
   load_batches = 1
 
+  # Learning rate hyperparameters.
+  learning_rate = 0.1
+  decay_steps = 100000
+  decay_rate = 0.96
+  rho = 0.9
+  epsilon = 1e-6
+
   data = data_loader.Ilsvrc12(batch_size, load_batches, use_4d=True)
   train = data.get_train_set()
   test = data.get_test_set()
@@ -96,6 +103,10 @@ def run_imagenet_test():
   network = LeNetClassifier((28, 28, 1), [conv1, norm, pool, conv2, norm,
                                           pool, conv3, conv4, conv5, pool],
                             [4096, 4096], 1000, train, test, batch_size)
+
+  network.use_rmsprop_trainer(learning_rate, rho, epsilon,
+                              decay_rate=decay_rate,
+                              decay_steps=decay_steps)
 
   print("Theano: Starting ImageNet test...")
 

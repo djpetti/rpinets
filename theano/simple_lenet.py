@@ -67,16 +67,7 @@ class LeNetClassifier(FeedforwardNetwork):
       train: The training dataset.
       test: The testing dataset.
       batch_size: The size of each image batch. """
-    self._train_x, self._train_y = train
-    self._test_x, self._test_y = test
-    self._batch_size = batch_size
-
-    # These are the weights and biases that will be used for calculating
-    # gradients.
-    self._weights = []
-    self._biases = []
-
-    self._print_op = theano.printing.Print("Debug: ")
+    self._initialize_variables(train, test, batch_size)
 
     # We don't call the base class constructor here, because we want it to build
     # its network on top of our convolutional part.
@@ -220,14 +211,10 @@ class LeNetClassifier(FeedforwardNetwork):
     # Now _layer_stack should contain the entire network.
 
     # Build cost function.
-    cost = TT.mean( \
+    self._cost = TT.mean( \
         self._softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
 
-    # RMSProp optimizer.
-    self._optimizer = self._build_rmsprop_trainer(cost, 0.001, 0.9, 1e-6,
-                                                  self._train_x, self._train_y,
-                                                  self._batch_size)
     # Does an actual prediction.
     self._prediction_operation = self._build_predictor(self._test_x,
                                                        self._batch_size)

@@ -53,3 +53,15 @@ def local_response_normalization(data, depth_radius, bias, alpha, beta):
   scale = scale ** beta
 
   return data / scale
+
+def exponential_decay(learning_rate, global_step, decay_steps, decay_rate):
+  """ Applies an exponential decay to the learning rate.
+  Args:
+    learning_rate: The initial learning rate.
+    global_step: Global step to use for the decay computation.
+    decay_steps: How many steps it takes to reach our full decay rate.
+    decay_rate: The decay rate.
+  Returns:
+    An exponentially decayed learning rate. """
+  rate = learning_rate * decay_rate ** (global_step / decay_steps)
+  return TT.cast(rate, theano.config.floatX)
