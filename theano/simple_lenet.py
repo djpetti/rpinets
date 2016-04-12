@@ -29,6 +29,9 @@ class LeNetClassifier(FeedforwardNetwork):
       # Stride size for convolution. (Defaults to (1, 1))
       self.stride_width = kwargs.get("stride_width", 1)
       self.stride_height = kwargs.get("stride_height", 1)
+      # Border mode for convolution. Currently supports either "valid" or
+      # "half".
+      self.border_mode = kwargs.get("border_mode", "valid")
 
   class PoolLayer(object):
     """ A simple class to handle the specification of maxpooling layers. """
@@ -109,18 +112,43 @@ class LeNetClassifier(FeedforwardNetwork):
     output_shape = (image_x, image_y)
     # Calculate shape of output.
     for layer in conv_layers:
+      out_shape_x, out_shape_y = output_shape
+
       if isinstance(layer, self.ConvLayer):
-        out_shape_x = output_shape[0] - layer.kernel_width + 1
-        out_shape_y = output_shape[1] - layer.kernel_height + 1
-      elif isinstance(layer, self.PoolLayer):
-        # Factor in maxpooling.
+        if layer.border_mode == "valid":
+          out_shape_x -= layer.kernel_width
+          out_shape_x += 1
+          out_shape_y -= layer.kernel_height
+          out_shape_y += 1
+        elif layer.border_mode == "half":
+          out_shape_x = output_shape[0] + (layer.kernel_width // 2) * 2
+          out_shape_y = output_shape[1] + (layer.kernel_height // 2) * 2
+          out_shape_x -= layer.kernel_width
+          out_shape_x += 1
+          out_shape_y -= layer.kernel_height
+          out_shape_y += 1
+        else:
+          raise ValueError("Invalid border mode '%s'." % (layer.border_mode))
+
         out_shape_x /= layer.stride_width
         out_shape_y /= layer.stride_height
+
+      elif isinstance(layer, self.PoolLayer):
+        # Factor in maxpooling.
+        if layer.kernel_width > layer.stride_width:
+          # The size of our patch impacts where we actually start, since we ignore
+          # the borders.
+          out_shape_x -= (layer.kernel_width // 2) * 2
+        if layer.kernel_height > layer.stride_height:
+          out_shape_y -= (layer.kernel_height // 2) * 2
+        out_shape_x = (out_shape_x - 1) / layer.stride_width + 1
+        out_shape_y = (out_shape_y - 1) / layer.stride_height + 1
+
       output_shape = (out_shape_x, out_shape_y)
 
     # Add last convolutional layer weights.
     final_x, final_y = output_shape
-    shape = [feedforward_inputs / final_x / final_y / channels,
+    shape = [feedforward_inputs / final_x / final_y,
              next_layer.feature_maps,
              next_layer.kernel_height,
              next_layer.kernel_width]
@@ -156,7 +184,7 @@ class LeNetClassifier(FeedforwardNetwork):
         conv = TT.nnet.conv2d(next_inputs, weights,
                               subsample=(layer_spec.stride_width,
                                          layer_spec.stride_height),
-                              border_mode="valid")
+                              border_mode=layer_spec.border_mode)
         # Activation.
         bias_values = np.zeros((output_feature_maps,), dtype=theano.config.floatX)
         bias = theano.shared(bias_values)

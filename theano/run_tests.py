@@ -1,11 +1,14 @@
 #!/usr/bin/python
 
 import json
+import os
 import time
 
-import data_loader
+from alexnet import AlexNet
 from simple_lenet import LeNetClassifier
-from simple_feedforward import FeedforwardNetwork
+import data_loader
+
+from six.moves import cPickle as pickle
 
 
 def run_mnist_test():
@@ -77,38 +80,49 @@ def run_imagenet_test():
   # Learning rate hyperparameters.
   learning_rate = 0.1
   decay_steps = 100000
-  decay_rate = 0.96
+  decay_rate = 0.93
   rho = 0.9
   epsilon = 1e-6
+
+  # Where we save the network.
+  save_file = "alexnet.pkl"
 
   data = data_loader.Ilsvrc12(batch_size, load_batches, use_4d=True)
   train = data.get_train_set()
   test = data.get_test_set()
+  _, cpu_labels = data.get_non_shared_test_set()
 
-  conv1 = LeNetClassifier.ConvLayer(kernel_width=11, kernel_height=11,
-                                    stride_width=4, stride_height=4,
-                                    feature_maps=3)
-  conv2 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
-                                    feature_maps=96)
-  conv3 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-                                    feature_maps=256)
-  conv4 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-                                    feature_maps=384)
-  conv5 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-                                    feature_maps=384)
-  pool = LeNetClassifier.PoolLayer(kernel_width=3, kernel_height=3,
-                                   stride_width=2, stride_height=2)
-  norm = LeNetClassifier.NormalizationLayer(depth_radius=3, alpha=2e-05,
-                                            beta=0.75, bias=1.0)
-  network = LeNetClassifier((28, 28, 1), [conv1, norm, pool, conv2, norm,
-                                          pool, conv3, conv4, conv5, pool],
-                            [4096, 4096], 1000, train, test, batch_size)
+  if os.path.exists(save_file):
+    # Load from the file.
+    print "Theano: Loading network from file..."
+    network = LeNetClassifier.load(save_file)
 
-  network.use_rmsprop_trainer(learning_rate, rho, epsilon,
-                              decay_rate=decay_rate,
-                              decay_steps=decay_steps)
+  else:
+    # Build new network.
+    conv1 = AlexNet.ConvLayer(kernel_width=11, kernel_height=11,
+                                      stride_width=4, stride_height=4,
+                                      feature_maps=3, border_mode="half")
+    conv2 = AlexNet.ConvLayer(kernel_width=5, kernel_height=5,
+                                      feature_maps=96, border_mode="half")
+    conv3 = AlexNet.ConvLayer(kernel_width=3, kernel_height=3,
+                                      feature_maps=256, border_mode="half")
+    conv4 = AlexNet.ConvLayer(kernel_width=3, kernel_height=3,
+                                      feature_maps=384)
+    conv5 = AlexNet.ConvLayer(kernel_width=3, kernel_height=3,
+                                      feature_maps=384)
+    pool = AlexNet.PoolLayer(kernel_width=3, kernel_height=3,
+                                    stride_width=2, stride_height=2)
+    norm = AlexNet.NormalizationLayer(depth_radius=3, alpha=2e-05,
+                                              beta=0.75, bias=1.0)
+    network = AlexNet((224, 224, 3), [conv1, norm, pool, conv2, norm,
+                                      pool, conv3, conv4, conv5, pool],
+                      [4096, 4096], 1000, train, test, batch_size)
 
-  print("Theano: Starting ImageNet test...")
+    network.use_rmsprop_trainer(learning_rate, rho, epsilon,
+                                decay_rate=decay_rate,
+                                decay_steps=decay_steps)
+
+  print "Theano: Starting ImageNet test..."
 
   accuracy = 0
   start_time = time.time()
@@ -117,28 +131,33 @@ def run_imagenet_test():
   train_batch_index = 0
   test_batch_index = 0
 
-  while iterations < 2000:
+  while iterations < 40000:
     if iterations % 50 == 0:
-      accuracy = network.test(test_batch_index)
-      print("Tensorflow: step %d, testing accuracy %s" % \
-            (iterations, accuracy))
+      #accuracy = network.test(test_batch_index, cpu_labels)
+      #print("Tensorflow: step %d, testing accuracy %s" % \
+      #      (iterations, accuracy))
 
       test_batch_index += 1
 
     cost = network.train(train_batch_index)[0]
-    if iterations % 10 == 0:
-      print "Training cost: %f" % (cost)
+    print "Training cost: %f" % (cost)
+
+    if iterations % 50 == 0:
+      print "Saving network..."
+      network.save(save_file)
 
     iterations += 1
     train_batch_index += 1
 
     # Swap in new data if we need to.
-    if (train_batch_index + 1) * batch_size >= data.get_train_set_size():
+    if (train_batch_index + 1) * batch_size > data.get_train_set_size():
       train_batch_index = 0
       train = data.get_train_set()
-    if (test_batch_index + 1) * batch_size >= data.get_test_set_size():
+    # Swap in new data if we need to.
+    if (test_batch_index + 1) * batch_size > data.get_test_set_size():
       test_batch_index = 0
       test = data.get_test_set()
+      _, cpu_labels = data.get_non_shared_test_set()
 
   elapsed = time.time() - start_time
   speed = iterations / elapsed

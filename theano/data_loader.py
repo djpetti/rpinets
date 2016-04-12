@@ -174,7 +174,7 @@ class Ilsvrc12(Loader):
 
     self.__batch_size = batch_size
     self.__load_batches = load_batches
-    self.__buffer = cache.MemoryBuffer(256,
+    self.__buffer = cache.MemoryBuffer(224,
                                        self.__batch_size * self.__load_batches,
                                        color=True)
 
@@ -184,6 +184,9 @@ class Ilsvrc12(Loader):
     self.__current_label = 0
 
     self.__mean = None
+
+    self.__current_patch = 0
+    self.__original_images = []
 
   def __load_random_image(self):
     """ Loads a random image from the dataset.
@@ -211,8 +214,15 @@ class Ilsvrc12(Loader):
 
       return (image, synset)
 
-  def __load_new_set(self):
+  def __load_new_set(self, patch=-1, load_new=True):
     """ Loads images from the disk into memory.
+    Args:
+      patch: Which patch to use for the images. -1 means pick a random one, and
+      other numbers from 0-4 specify an index into the tuple returned be
+      __extract_patches. If load_batches > 1 and patch is not random, extra
+      batches will have an incrementally increasing patch index.
+      load_new: Whether to actually load new images, or to just use the old
+      ones with different transformations.
     Returns:
       The images from the new set, and the labels. """
     print "Loading new batches..."
@@ -220,19 +230,46 @@ class Ilsvrc12(Loader):
 
     # Load data from disk.
     labels = []
-    for i in range(0, self.__batch_size * self.__load_batches):
-      image, synset = self.__load_random_image()
-      self.__buffer.add(image, i)
+    for batch in range(0, self.__load_batches):
+      if load_new:
+        self.__original_images = []
+      for i in range(0, self.__batch_size):
+        if load_new:
+          # Load new images.
+          image, synset = self.__load_random_image()
+          self.__original_images.append((image, synset))
+        else:
+          # Use old images.
+          image, synset = self.__original_images[i]
 
-      # Find a label.
-      if synset in self.__synets:
-        label = self.__synets[synset]
-      else:
-        # We need a new label.
-        label = self.__current_label
-        self.__synets[synset] = label
-        self.__current_label += 1
-      labels.append(label)
+        # Extract patches from the image.
+        patches = self.__extract_patches(image)
+
+        if patch < 0:
+          # Pick a random patch.
+          image = patches[random.randint(0, 4)]
+        else:
+          image = patches[patch]
+
+        self.__buffer.add(image, i)
+
+        # Find a label.
+        if synset in self.__synets:
+          label = self.__synets[synset]
+        else:
+          # We need a new label.
+          label = self.__current_label
+          self.__synets[synset] = label
+          self.__current_label += 1
+        labels.append(label)
+
+      if patch >= 0:
+        load_new = False
+        patch += 1
+        if patch == 5:
+          patch = 0
+          # We've exhausted all our patches, so we need to load new data.
+          load_new = True
 
     self._train_set_size = self.__batch_size * self.__load_batches
     self._test_set_size = self.__batch_size * self.__load_batches
@@ -241,7 +278,7 @@ class Ilsvrc12(Loader):
     images = self.__buffer.get_storage()
     # Reshape the images if need be.
     if self.__use_4d:
-       images = images.reshape(-1, 3, 256, 256)
+       images = images.reshape(-1, 3, 224, 224)
 
     # In leiu of actually reading all the images and finding the mean, we
     # basically take the mean of an SRS.
@@ -256,6 +293,24 @@ class Ilsvrc12(Loader):
 
     return (images, np.asarray(labels))
 
+  def __extract_patches(self, image):
+    """ Extracts 224x224 patches from the image. It extracts five such patches:
+    Top left, top right, bottom left, bottom right, and center.
+    Args:
+      image: The input image to extract patches from.
+    Returns:
+      The five extracted patches. """
+    top_left = image[0:224, 0:224]
+    top_right = image[256 - 224:256, 0:224]
+    bottom_left = image[0:224, 256 - 224:256]
+    bottom_right = image[256 - 224:256, 256 - 224:256]
+
+    distance_from_edge = (256 - 224) / 2
+    center = image[distance_from_edge:256 - distance_from_edge,
+                   distance_from_edge:256 - distance_from_edge]
+
+    return (top_left, top_right, bottom_left, bottom_right, center)
+
   def get_train_set(self):
     # Load a new set for it.
     dataset = self.__load_new_set()
@@ -264,7 +319,32 @@ class Ilsvrc12(Loader):
     return super(Ilsvrc12, self).get_train_set()
 
   def get_test_set(self):
-    dataset = self.__load_new_set()
-    self._shared_dataset(dataset, self._shared_test_set)
+    """ An important note on functionality: Every set of five batches returned
+    by this function will be the same batch, just with a different patch. (If
+    load_batches < 5, than this function must be called multiple times to get
+    all the patches for one batch.) """
+    # FIXME (danielp): This is a temporary hack for when we don't have enough
+    # VRAM to load >=5 training batches.
+    combined_dataset = None
+    for _ in range(0, 5):
+      dataset = self.__load_new_set(patch=self.__current_patch,
+                                    load_new=(self.__current_patch == 0))
+      self.__current_patch += self.__load_batches
+      self.__current_patch %= 5
+
+      if not combined_dataset:
+        combined_dataset = dataset
+      else:
+        combined_dataset = (np.concatenate((combined_dataset[0], dataset[0]),
+                                           axis=0),
+                            np.concatenate((combined_dataset[1], dataset[1]),
+                                           axis=0))
+
+    self.__non_shared_test = combined_dataset
+    self._shared_dataset(combined_dataset, self._shared_test_set)
 
     return super(Ilsvrc12, self).get_test_set()
+
+  def get_non_shared_test_set(self):
+    """ Gets a non-shared version of the test set, useful for AlexNet. """
+    return self.__non_shared_test

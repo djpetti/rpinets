@@ -2,12 +2,21 @@
 libraries. """
 
 
+from six.moves import cPickle as pickle
+import sys
+
 import theano
 import theano.tensor as TT
 
 import numpy as np
 
 import utils
+
+
+# Do this because Pickle is stupid.
+# TODO(danielp): Figure out more space-efficient and robust way to save
+# networks.
+sys.setrecursionlimit(50000)
 
 
 class FeedforwardNetwork(object):
@@ -229,12 +238,13 @@ class FeedforwardNetwork(object):
     Returns:
       Theano function for evaluating network accuracy. """
     index = TT.lscalar()
-    outputs = TT.argmax(self._layer_stack, axis=1)
+    softmax = TT.softmax(self._layer_stack)
+    argmax = TT.argmax(softmax, axis=1)
 
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
     expected_outputs = test_y[batch_start:batch_end]
-    accuracy = TT.mean(TT.eq(expected_outputs, outputs))
+    accuracy = TT.mean(TT.eq(expected_outputs, argmax))
 
     tester = theano.function(inputs=[index], outputs=accuracy,
                              givens={self._inputs: \
@@ -250,9 +260,6 @@ class FeedforwardNetwork(object):
       Symbolic op for the cross-entropy opertaion.
     """
     softmax = TT.nnet.softmax(logits)
-    argmax = TT.argmax(softmax, axis=1)
-    self.__pargmax = self._print_op(softmax)
-    self.__plabels = self._print_op(labels)
     cross = TT.nnet.categorical_crossentropy(softmax, labels)
     return cross
 
@@ -328,3 +335,24 @@ class FeedforwardNetwork(object):
     Returns:
       The testing operation. """
     return self._tester
+
+  def save(self, filename):
+    """ Saves the network to a file.
+    Args:
+      filename: The name of the file to save to. """
+    file_object = open(filename, "wb")
+    pickle.dump(self, file_object, protocol=pickle.HIGHEST_PROTOCOL)
+    file_object.close()
+
+  @classmethod
+  def load(cls, filename):
+    """ Loads the network from a file.
+    Args:
+      filename: The name of the file to load from.
+    Returns:
+      The loaded network. """
+    file_object = open(filename, "rb")
+    network = pickle.load(file_object)
+    file_object.close()
+
+    return network
