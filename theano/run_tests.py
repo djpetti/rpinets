@@ -138,9 +138,9 @@ def run_imagenet_test():
       network.test_half(test_batch_index, cpu_labels)
       test = data.get_test_set()
       _, cpu_labels = data.get_non_shared_test_set()
-      accuracy = network.test(test_batch_index, cpu_labels)
-      print "Theano: step %d, testing accuracy %s" % \
-            (iterations, accuracy)
+      top_one, top_five = network.test(test_batch_index, cpu_labels)
+      print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
+            (iterations, top_one, top_five)
 
       test_batch_index += 1
 

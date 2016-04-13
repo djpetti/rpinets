@@ -53,8 +53,18 @@ class AlexNet(LeNetClassifier):
     mean = np.mean(softmaxes, axis=0)
 
     # Now find the accuracy.
-    argmax = np.argmax(mean, axis=1)
+    sort = np.argsort(mean, axis=1)
+    top_one = sort[:, -1:]
+    top_five = sort[:, -5:]
     # expected_outputs includes duplicate values for each patch.
-    accuracy = np.mean(np.equal(expected_outputs[0:128], argmax))
+    top_one_accuracy = np.mean(np.equal(expected_outputs[0:self._batch_size],
+                                        top_one))
 
-    return accuracy
+    # Top five accuracy.
+    correct = 0
+    for i in range(0, self._batch_size):
+      if np.in1d(expected_outputs[i], top_five[i])[0]:
+        correct += 1
+    top_five_accuracy = float(correct) / self._batch_size
+
+    return top_one_accuracy, top_five_accuracy

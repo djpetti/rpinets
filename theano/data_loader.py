@@ -230,6 +230,7 @@ class Ilsvrc12(Loader):
 
     # Load data from disk.
     labels = []
+    images_for_mean = []
     for batch in range(0, self.__load_batches):
       if load_new:
         self.__original_images = []
@@ -242,6 +243,10 @@ class Ilsvrc12(Loader):
           # Use old images.
           image, synset = self.__original_images[i]
 
+        if self.__mean == None:
+          # Save raw images for calculating mean.
+          images_for_mean.append(image)
+
         # Extract patches from the image.
         patches = self.__extract_patches(image)
 
@@ -250,6 +255,9 @@ class Ilsvrc12(Loader):
           image = patches[random.randint(0, 9)]
         else:
           image = patches[patch]
+
+        # Perform PCA.
+        image = self.__pca(image)
 
         self.__buffer.add(image, i)
 
@@ -283,7 +291,7 @@ class Ilsvrc12(Loader):
     # In leiu of actually reading all the images and finding the mean, we
     # basically take the mean of an SRS.
     if self.__mean == None:
-      self.__mean = np.mean(images)
+      self.__mean = np.mean(images_for_mean)
       print "Using mean: %f" % (self.__mean)
     images = images.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
@@ -320,6 +328,28 @@ class Ilsvrc12(Loader):
     return (top_left, top_left_flip, top_right, tor_right_flip, bottom_left,
             bottom_left_flip, bottom_right, bottom_right_flip, center,
             center_flip)
+
+  def __pca(self, image):
+    """ Performs Principle Component Analysis on input image and adjusts it
+    randomly, simluating different lighting intensities.
+    Args:
+      image: Input image matrix.
+    Return:
+      Adjusted image.
+    """
+    # Reshape image.
+    reshaped_image = np.reshape(image, (224 * 224, 3))
+    # Find the covariance.
+    cov = np.cov(reshaped_image, rowvar=0)
+    # Eigenvalues and vectors.
+    eigvals, eigvecs = np.linalg.eigh(cov)
+
+    # Pick random gaussian values.
+    a = np.random.normal(0, 0.1, size=(3,))
+
+    scaled = eigvals * a
+    delta = np.dot(eigvecs, scaled.T)
+    return np.add(delta, scaled)
 
   def get_train_set(self):
     # Load a new set for it.
