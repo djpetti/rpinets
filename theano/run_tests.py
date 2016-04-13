@@ -133,9 +133,14 @@ def run_imagenet_test():
 
   while iterations < 40000:
     if iterations % 50 == 0:
+      # FIXME (danielp): Another hack for dealing with VRAM storage. We test in
+      # two parts, with each set of batches loaded individually.
+      network.test_half(test_batch_index, cpu_labels)
+      test = data.get_test_set()
+      _, cpu_labels = data.get_non_shared_test_set()
       accuracy = network.test(test_batch_index, cpu_labels)
-      print("Tensorflow: step %d, testing accuracy %s" % \
-            (iterations, accuracy))
+      print "Theano: step %d, testing accuracy %s" % \
+            (iterations, accuracy)
 
       test_batch_index += 1
 

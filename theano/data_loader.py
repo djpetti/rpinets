@@ -218,7 +218,7 @@ class Ilsvrc12(Loader):
     """ Loads images from the disk into memory.
     Args:
       patch: Which patch to use for the images. -1 means pick a random one, and
-      other numbers from 0-4 specify an index into the tuple returned be
+      other numbers from 0-9 specify an index into the tuple returned be
       __extract_patches. If load_batches > 1 and patch is not random, extra
       batches will have an incrementally increasing patch index.
       load_new: Whether to actually load new images, or to just use the old
@@ -247,7 +247,7 @@ class Ilsvrc12(Loader):
 
         if patch < 0:
           # Pick a random patch.
-          image = patches[random.randint(0, 4)]
+          image = patches[random.randint(0, 9)]
         else:
           image = patches[patch]
 
@@ -266,7 +266,7 @@ class Ilsvrc12(Loader):
       if patch >= 0:
         load_new = False
         patch += 1
-        if patch == 5:
+        if patch == 10:
           patch = 0
           # We've exhausted all our patches, so we need to load new data.
           load_new = True
@@ -294,8 +294,9 @@ class Ilsvrc12(Loader):
     return (images, np.asarray(labels))
 
   def __extract_patches(self, image):
-    """ Extracts 224x224 patches from the image. It extracts five such patches:
-    Top left, top right, bottom left, bottom right, and center.
+    """ Extracts 224x224 patches from the image. It extracts ten such patches:
+    Top left, top right, bottom left, bottom right, and center, plus horizontal
+    reflections of them all.
     Args:
       image: The input image to extract patches from.
     Returns:
@@ -309,7 +310,16 @@ class Ilsvrc12(Loader):
     center = image[distance_from_edge:256 - distance_from_edge,
                    distance_from_edge:256 - distance_from_edge]
 
-    return (top_left, top_right, bottom_left, bottom_right, center)
+    # Flip everything as well.
+    top_left_flip = np.fliplr(top_left)
+    tor_right_flip = np.fliplr(top_right)
+    bottom_left_flip = np.fliplr(bottom_left)
+    bottom_right_flip = np.fliplr(bottom_right)
+    center_flip = np.fliplr(center)
+
+    return (top_left, top_left_flip, top_right, tor_right_flip, bottom_left,
+            bottom_left_flip, bottom_right, bottom_right_flip, center,
+            center_flip)
 
   def get_train_set(self):
     # Load a new set for it.
@@ -319,9 +329,9 @@ class Ilsvrc12(Loader):
     return super(Ilsvrc12, self).get_train_set()
 
   def get_test_set(self):
-    """ An important note on functionality: Every set of five batches returned
+    """ An important note on functionality: Every set of ten batches returned
     by this function will be the same batch, just with a different patch. (If
-    load_batches < 5, than this function must be called multiple times to get
+    load_batches < 10, than this function must be called multiple times to get
     all the patches for one batch.) """
     # FIXME (danielp): This is a temporary hack for when we don't have enough
     # VRAM to load >=5 training batches.
@@ -330,7 +340,7 @@ class Ilsvrc12(Loader):
       dataset = self.__load_new_set(patch=self.__current_patch,
                                     load_new=(self.__current_patch == 0))
       self.__current_patch += self.__load_batches
-      self.__current_patch %= 5
+      self.__current_patch %= 10
 
       if not combined_dataset:
         combined_dataset = dataset

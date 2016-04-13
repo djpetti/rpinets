@@ -25,6 +25,15 @@ class AlexNet(LeNetClassifier):
                                      test_x[batch_start:batch_end]})
     return tester
 
+  def test_half(self, batch_index, expected_outputs):
+    """ This is another terrible hack to deal with the lack of VRAM. What we do
+    is load half the testing batches, call this function, load the other half,
+    and call the normal test function. """
+    # Run for every translation.
+    self.__softmaxes = []
+    for i in range(0, 5):
+      self.__softmaxes.append(self._tester(batch_index + i))
+
   def test(self, batch_index, expected_outputs):
     """ A special tester that averages the softmax accross multiple
     translations, as described in the AlexNet paper. It is assumed that
@@ -36,12 +45,11 @@ class AlexNet(LeNetClassifier):
     Returns:
       The accuracy of the network. """
     # Run for every translation.
-    softmaxes = []
     for i in range(0, 5):
-      softmaxes.append(self._tester(batch_index + i))
+      self.__softmaxes.append(self._tester(batch_index + i))
 
     # Find the mean distribution.
-    softmaxes = np.asarray(softmaxes)
+    softmaxes = np.asarray(self.__softmaxes)
     mean = np.mean(softmaxes, axis=0)
 
     # Now find the accuracy.
