@@ -13,12 +13,6 @@ import numpy as np
 import utils
 
 
-# Do this because Pickle is stupid.
-# TODO(danielp): Figure out more space-efficient and robust way to save
-# networks.
-sys.setrecursionlimit(50000)
-
-
 class FeedforwardNetwork(object):
   """ A simple, fully-connected feedforward neural network. """
 
@@ -34,6 +28,19 @@ class FeedforwardNetwork(object):
       batch_size: The size of each minibatch. """
     self._initialize_variables(train, test, batch_size)
     self.__build_model(layers, outputs)
+
+  def __getstate__(self):
+    """ Gets the state for pickling. """
+    state = (self._weights, self._biases, self._layer_stack, self._cost,
+             self._inputs, self._expected_outputs, self.__trainer_type,
+             self.__train_params, self._global_step, self._print_op)
+    return state
+
+  def __setstate__(self, state):
+    """ Sets the state for unpickling. """
+    self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
+    self._expected_outputs, self.__trainer_type, self.__train_params, \
+    self._global_step, self._print_op = state
 
   def _initialize_variables(self, train, test, batch_size):
     """ Initializes variables that are common to all subclasses.
@@ -51,6 +58,8 @@ class FeedforwardNetwork(object):
     self._biases = []
 
     self._optimizer = None
+    self.__trainer_type = None
+    self.__train_params = ()
     # A global step to use for learning rate decays.
     value = np.asarray(0).astype(theano.config.floatX)
     self._global_step = theano.shared(value)
@@ -151,7 +160,7 @@ class FeedforwardNetwork(object):
       train_y: Training set expected outputs.
       batch_size: How big our batches are.
     Returns:
-      Theano function for training the network. """
+      Theano function for training the network. """ 
     # Compute gradients for all parameters.
     params = self._weights + self._biases
     gradients = TT.grad(cost, params)
@@ -280,6 +289,10 @@ class FeedforwardNetwork(object):
       learning_rate: The learning rate to use for training.
       decay_rate: An optional exponential decay rate for the learning rate.
       decay_steps: An optinal number of steps to decay in. """
+    # Save these for use when saving and loading the network.
+    self.__trainer_type = "sgd"
+    self.__train_params = (learning_rate, decay_rate, decay_steps)
+
     # Handle learning rate decay.
     decayed_learning_rate = \
         utils.exponential_decay(learning_rate, self._global_step, decay_steps,
@@ -299,6 +312,10 @@ class FeedforwardNetwork(object):
       epsilon: Shift factor for gradient scaling.
       decay_rate: An optinal exponential decay rate for the learning rate.
       decay_steps: An optional number of steps to decay in. """
+    # Save these for use when saving and loading the network.
+    self.__trainer_type = "rmsprop"
+    self.__train_params = (learning_rate, rho, epsilon, decay_rate, decay_steps)
+
     # Handle learning rate decay.
     decayed_learning_rate = \
         utils.exponential_decay(learning_rate, self._global_step, decay_steps,
@@ -312,16 +329,14 @@ class FeedforwardNetwork(object):
 
   @property
   def predict(self):
-    """ Runs an actual prediction step for the network. It is intended that
-    the result here get passed as the target of Session.run().
+    """ Runs an actual prediction step for the network.
     Returns:
       The prediction operation. """
     return self._prediction_operation
 
   @property
   def train(self):
-    """ Runs an training step for the network. It is intended that the
-    result here get passed as the target of Session.run().
+    """ Runs an training step for the network.
     Returns:
       The training operation. """
     if not self._optimizer:
@@ -345,14 +360,39 @@ class FeedforwardNetwork(object):
     file_object.close()
 
   @classmethod
-  def load(cls, filename):
+  def load(cls, filename, train, test, batch_size):
     """ Loads the network from a file.
     Args:
       filename: The name of the file to load from.
+      train: The training dataset to use.
+      test: The testing dataset to use.
+      batch_size: The batch size to use.
     Returns:
       The loaded network. """
     file_object = open(filename, "rb")
     network = pickle.load(file_object)
     file_object.close()
+
+    # Set datasets.
+    network._train_x, network._train_y = train
+    network._test_x, network._test_y = test
+    network._batch_size = batch_size
+
+    # Build predictor.
+    network._prediction_operation = network._build_predictor(network._test_x,
+                                                             network._batch_size)
+    # Build tester.
+    network._tester = network._build_tester(network._test_x, network._test_y,
+                                            network._batch_size)
+
+    # Reconstruct the specified trainer.
+    builder = None
+    if network.__trainer_type == "rmsprop":
+      builder = network.use_rmsprop_trainer
+    if network.__trainer_type == "sgd":
+      builder = network.use_sgd_trainer
+
+    if builder:
+      builder(*network.__train_params)
 
     return network

@@ -95,7 +95,7 @@ def run_imagenet_test():
   if os.path.exists(save_file):
     # Load from the file.
     print "Theano: Loading network from file..."
-    network = LeNetClassifier.load(save_file)
+    network = LeNetClassifier.load(save_file, train, test, batch_size)
 
   else:
     # Build new network.
@@ -133,9 +133,9 @@ def run_imagenet_test():
 
   while iterations < 40000:
     if iterations % 50 == 0:
-      #accuracy = network.test(test_batch_index, cpu_labels)
-      #print("Tensorflow: step %d, testing accuracy %s" % \
-      #      (iterations, accuracy))
+      accuracy = network.test(test_batch_index, cpu_labels)
+      print("Tensorflow: step %d, testing accuracy %s" % \
+            (iterations, accuracy))
 
       test_batch_index += 1
 
