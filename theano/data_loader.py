@@ -3,6 +3,7 @@
 
 import cPickle as pickle
 import gzip
+import json
 import os
 import random
 import urllib2
@@ -21,6 +22,7 @@ MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 
 ILSVRC12_LOCATION = "/home/daniel/datasets/ilsvrc12"
+VAL_SYNSETS_FILE = os.path.join(ILSVRC12_LOCATION, "val_synsets.json")
 
 
 class Loader(object):
@@ -188,33 +190,66 @@ class Ilsvrc12(Loader):
     self.__current_patch = 0
     self.__original_images = []
 
-  def __load_random_image(self):
+    self.__val_synsets = self.__load_val_synsets()
+
+  def __load_val_synsets(self):
+    """ Loads the JSON file that tells us which validation images belong to
+    which synsets. """
+    print "Loading validation image information..."
+    synset_file = file(VAL_SYNSETS_FILE)
+    val_synsets = json.load(synset_file)
+    synset_file.close()
+
+    # We have to "invert" the map, so it maps image names to their synsets.
+    inverted = {}
+    for synset, images in val_synsets.iteritems():
+      for image_name in images:
+        inverted[image_name] = synset
+
+    print "Done."
+
+    return inverted
+
+  def __load_random_image(self, valid):
     """ Loads a random image from the dataset.
+    Args:
+      valid: Whether to load from the validation images.
     Returns:
       The image, and the synset that the image belongs to. """
-    base_path = os.path.join(ILSVRC12_LOCATION, "train")
+    if valid:
+      base_path = os.path.join(ILSVRC12_LOCATION, "val")
+    else:
+      base_path = os.path.join(ILSVRC12_LOCATION, "train")
 
     while True:
-      # Choose a synset.
-      possible_synsets = os.listdir(base_path)
-      synset = possible_synsets[random.randint(0, len(possible_synsets) - 1)]
+      if valid:
+        # The images are directly in the val directory.
+        image_dir_path = base_path
+      else:
+        # Choose a synset.
+        possible_synsets = os.listdir(base_path)
+        synset = possible_synsets[random.randint(0, len(possible_synsets) - 1)]
+        image_dir_path = os.path.join(base_path, synset)
 
       # Choose an image.
-      synset_path = os.path.join(base_path, synset)
-      possible_images = os.listdir(synset_path)
-      image = possible_images[random.randint(0, len(possible_images) - 1)]
+      possible_images = os.listdir(image_dir_path)
+      image_name = possible_images[random.randint(0, len(possible_images) - 1)]
 
       # Open the image.
-      image_path = os.path.join(synset_path, image)
+      image_path = os.path.join(image_dir_path, image_name)
       image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
 
       if image == None:
         print "WARNING: Failed to load image: %s" % (image_path)
         continue
 
+      if valid:
+        # We have to look up the synset from our validation synset information.
+        synset = self.__val_synsets[image_name]
+
       return (image, synset)
 
-  def __load_new_set(self, patch=-1, load_new=True):
+  def __load_new_set(self, patch=-1, load_new=True, valid=False):
     """ Loads images from the disk into memory.
     Args:
       patch: Which patch to use for the images. -1 means pick a random one, and
@@ -223,6 +258,8 @@ class Ilsvrc12(Loader):
       batches will have an incrementally increasing patch index.
       load_new: Whether to actually load new images, or to just use the old
       ones with different transformations.
+      valid: Whether to load from the validation images instead of the training
+      ones.
     Returns:
       The images from the new set, and the labels. """
     print "Loading new batches..."
@@ -237,7 +274,7 @@ class Ilsvrc12(Loader):
       for i in range(0, self.__batch_size):
         if load_new:
           # Load new images.
-          image, synset = self.__load_random_image()
+          image, synset = self.__load_random_image(valid)
           self.__original_images.append((image, synset))
         else:
           # Use old images.
@@ -368,7 +405,8 @@ class Ilsvrc12(Loader):
     combined_dataset = None
     for _ in range(0, 5):
       dataset = self.__load_new_set(patch=self.__current_patch,
-                                    load_new=(self.__current_patch == 0))
+                                    load_new=(self.__current_patch == 0),
+                                    valid=True)
       self.__current_patch += self.__load_batches
       self.__current_patch %= 10
 
