@@ -80,8 +80,8 @@ def run_imagenet_test():
 
   # Learning rate hyperparameters.
   learning_rate = 0.1
-  decay_steps = 100000
-  decay_rate = 0.93
+  decay_steps = 1000
+  decay_rate = 0.8
   rho = 0.9
   epsilon = 1e-6
 
