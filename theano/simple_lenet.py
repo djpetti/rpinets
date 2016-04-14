@@ -8,6 +8,7 @@ import theano.tensor.signal.pool as pool
 
 import numpy as np
 
+from layers import ConvLayer, PoolLayer, NormalizationLayer
 from simple_feedforward import FeedforwardNetwork
 import utils
 
@@ -16,65 +17,51 @@ class LeNetClassifier(FeedforwardNetwork):
   """ A classifier built upon the Convolutional Neural Network as described by
   Yan LeCun. """
 
-  class ConvLayer(object):
-    """ A simple class to handle the specification of convolutional layers. """
-
-    def __init__(self, *args, **kwargs):
-      # Convolutional kernel width.
-      self.kernel_width = kwargs.get("kernel_width")
-      # Convolutional kernel height.
-      self.kernel_height = kwargs.get("kernel_height")
-      # Number of input feature maps.
-      self.feature_maps = kwargs.get("feature_maps")
-      # Stride size for convolution. (Defaults to (1, 1))
-      self.stride_width = kwargs.get("stride_width", 1)
-      self.stride_height = kwargs.get("stride_height", 1)
-      # Border mode for convolution. Currently supports either "valid" or
-      # "half".
-      self.border_mode = kwargs.get("border_mode", "valid")
-
-  class PoolLayer(object):
-    """ A simple class to handle the specification of maxpooling layers. """
-
-    def __init__(self, *args, **kwargs):
-      # Maxpooling kernel size. (Defaults to 2x2.)
-      self.kernel_width = kwargs.get("kernel_width", 2)
-      self.kernel_height = kwargs.get("kernel_height", 2)
-      # Maxpooling stride size. (Defaults to the same as the kernel.)
-      self.stride_width = kwargs.get("stride_width", self.kernel_width)
-      self.stride_height = kwargs.get("stride_height", self.kernel_height)
-
-  class NormalizationLayer(object):
-    """ Performs local response normalization, as described in the AlexNet
-    paper. """
-
-    def __init__(self, *args, **kwargs):
-      self.depth_radius = kwargs.get("depth_radius", 5)
-      self.alpha = kwargs.get("alpha", 1.0)
-      self.beta = kwargs.get("beta", 0.5)
-      self.bias = kwargs.get("bias", 1.0)
-
-  def __init__(self, image_size, conv_layers, feedforward_layers, outputs,
-               train, test, batch_size):
+  def __init__(self, image_size, layers, outputs, train, test, batch_size):
     """
     NOTE: For input images, this class will accept them in the format of a 4D
     tensor with the dimensions (batch_size, input_channels, input_rows,
     input_columns)
     Args:
       image_size: Size of the image. (width, height, channels)
-      conv_layers: A list of convolutional layers and maxpooling layers,
-      composed of ConvLayer, NormalizationLayer and PoolLayer instances.
-      feedforward_layers: A list of ints denoting the number of inputs for each
-      fully-connected layer.
+      layers: A list of the layers to use for this network.
       outputs: The number of outputs of the network.
       train: The training dataset.
       test: The testing dataset.
       batch_size: The size of each image batch. """
     self._initialize_variables(train, test, batch_size)
 
+    conv_layers, feedforward_layers = self.__split_layers(layers)
     # We don't call the base class constructor here, because we want it to build
     # its network on top of our convolutional part.
     self.__build_model(image_size, conv_layers, feedforward_layers, outputs)
+
+  def __split_layers(self, layers):
+    """ Splits layers from the convolutional and feedforward parts of the
+    network.
+    Args:
+      layers: The list of layers.
+    Returns:
+      The convolutional layers, and the feedforward ones."""
+    conv = []
+    feedforward = []
+    for layer in layers:
+      if (isinstance(layer, ConvLayer) \
+          or isinstance(layer, PoolLayer) \
+          or isinstance(layer, NormalizationLayer)):
+        if feedforward:
+          # The convolutional part of the network extends after the feedforward
+          # part.
+          raise ValueError("The feedforward layers must come after all \
+                            convolutional ones.")
+        # Convolutional layer.
+        conv.append(layer)
+
+      else:
+        # Feedforward layer.
+        feedforward.append(layer)
+
+    return conv, feedforward
 
   def __initialize_weights(self, image_size, conv_layers, feedforward_inputs):
     """ Initializes tensors containing the weights for each convolutional layer.
@@ -91,8 +78,9 @@ class LeNetClassifier(FeedforwardNetwork):
     # Extract only convolutional layers.
     only_convolution = []
     for layer in conv_layers:
-      if isinstance(layer, self.ConvLayer):
+      if isinstance(layer, ConvLayer):
         only_convolution.append(layer)
+
     for i in range(0, len(only_convolution) - 1):
       first_layer = only_convolution[i]
       next_layer = only_convolution[i + 1]
@@ -114,7 +102,7 @@ class LeNetClassifier(FeedforwardNetwork):
     for layer in conv_layers:
       out_shape_x, out_shape_y = output_shape
 
-      if isinstance(layer, self.ConvLayer):
+      if isinstance(layer, ConvLayer):
         if layer.border_mode == "valid":
           out_shape_x -= layer.kernel_width
           out_shape_x += 1
@@ -133,7 +121,7 @@ class LeNetClassifier(FeedforwardNetwork):
         out_shape_x /= layer.stride_width
         out_shape_y /= layer.stride_height
 
-      elif isinstance(layer, self.PoolLayer):
+      elif isinstance(layer, PoolLayer):
         # Factor in maxpooling.
         if layer.kernel_width > layer.stride_width:
           # The size of our patch impacts where we actually start, since we ignore
@@ -175,7 +163,7 @@ class LeNetClassifier(FeedforwardNetwork):
     next_inputs = self._inputs
     weight_index = 0
     for layer_spec in conv_layers:
-      if isinstance(layer_spec, self.ConvLayer):
+      if isinstance(layer_spec, ConvLayer):
         # Convolution.
         weights = self.__our_weights[weight_index]
         output_feature_maps, _, _, _ = self.__weight_shapes[weight_index]
@@ -191,7 +179,7 @@ class LeNetClassifier(FeedforwardNetwork):
         our_biases.append(bias)
         next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
 
-      elif isinstance(layer_spec, self.NormalizationLayer):
+      elif isinstance(layer_spec, NormalizationLayer):
         # Local normalization.
         next_inputs = utils.local_response_normalization(next_inputs,
             layer_spec.depth_radius, layer_spec.bias, layer_spec.alpha,
@@ -207,7 +195,7 @@ class LeNetClassifier(FeedforwardNetwork):
 
     # Reshape convolution outputs so they can be used as inputs to the
     # feedforward network.
-    num_inputs = feedforward_layers[0]
+    num_inputs = feedforward_layers[0].size
     flattened_inputs = TT.reshape(next_inputs, [self._batch_size, num_inputs])
     self._pflat = self._print_op(flattened_inputs)
     # Now that we're done building our weights, add them to the global list of
@@ -227,7 +215,7 @@ class LeNetClassifier(FeedforwardNetwork):
       feedforward layer.
       ouputs: The number of outputs of the network. """
     # Initialize all the weights first.
-    num_inputs = feedforward_layers[0]
+    num_inputs = feedforward_layers[0].size
     self.__initialize_weights(image_size, conv_layers, num_inputs)
 
     # Inputs and outputs.

@@ -9,9 +9,6 @@ from simple_lenet import LeNetClassifier
 class AlexNet(LeNetClassifier):
   """ Special class specifically for Alexnets. """
 
-  def __init__(self, *args, **kwargs):
-    super(AlexNet, self).__init__(*args, **kwargs)
-
   def _build_tester(self, test_x, test_y, batch_size):
     """ Same as the superclass tester, but returns the raw softmax instead of
     the accuracy. """
@@ -22,7 +19,8 @@ class AlexNet(LeNetClassifier):
     batch_end = (index + 1) * batch_size
     tester = theano.function(inputs=[index], outputs=softmax,
                              givens={self._inputs: \
-                                     test_x[batch_start:batch_end]})
+                                     test_x[batch_start:batch_end],
+                                     self._training: 0})
     return tester
 
   def test_half(self, batch_index, expected_outputs):

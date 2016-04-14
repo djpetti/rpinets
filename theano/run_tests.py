@@ -7,6 +7,7 @@ import time
 from alexnet import AlexNet
 from simple_lenet import LeNetClassifier
 import data_loader
+import layers
 
 from six.moves import cPickle as pickle
 
@@ -22,14 +23,14 @@ def run_mnist_test():
 
   batch_size = 128
 
-  conv1 = LeNetClassifier.ConvLayer(kernel_width=5, kernel_height=5,
-                                    feature_maps=1)
-  conv2 = LeNetClassifier.ConvLayer(kernel_width=3, kernel_height=3,
-                                    feature_maps=32)
-  pool = LeNetClassifier.PoolLayer()
-  network = LeNetClassifier((28, 28, 1), [conv1, pool, conv2, pool],
-                            [5 * 5 * 128, 625], 10, train, test, batch_size)
-  #network = FeedforwardNetwork([784, 625], 10, train, test, batch_size)
+  conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=1)
+  conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=32)
+  pool = layers.PoolLayer()
+  inner_product1 = layers.InnerProductLayer(size=5 * 5 * 128)
+  inner_product2 = layers.InnerProductLayer(size=625)
+  network = LeNetClassifier((28, 28, 1), [conv1, pool, conv2, pool,
+                                          inner_product1, inner_product2],
+                            10, train, test, batch_size)
 
   print("Theano: Starting MNIST test...")
 
@@ -99,24 +100,23 @@ def run_imagenet_test():
 
   else:
     # Build new network.
-    conv1 = AlexNet.ConvLayer(kernel_width=11, kernel_height=11,
-                                      stride_width=4, stride_height=4,
-                                      feature_maps=3, border_mode="half")
-    conv2 = AlexNet.ConvLayer(kernel_width=5, kernel_height=5,
-                                      feature_maps=96, border_mode="half")
-    conv3 = AlexNet.ConvLayer(kernel_width=3, kernel_height=3,
-                                      feature_maps=256, border_mode="half")
-    conv4 = AlexNet.ConvLayer(kernel_width=3, kernel_height=3,
-                                      feature_maps=384)
-    conv5 = AlexNet.ConvLayer(kernel_width=3, kernel_height=3,
-                                      feature_maps=384)
-    pool = AlexNet.PoolLayer(kernel_width=3, kernel_height=3,
-                                    stride_width=2, stride_height=2)
-    norm = AlexNet.NormalizationLayer(depth_radius=3, alpha=2e-05,
-                                              beta=0.75, bias=1.0)
+    conv1 = layers.ConvLayer(kernel_width=11, kernel_height=11, stride_width=4,
+                             stride_height=4, feature_maps=3, border_mode="half")
+    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=96,
+                             border_mode="half")
+    conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
+                             border_mode="half")
+    conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384)
+    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384)
+    pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
+                            stride_height=2)
+    inner_product = layers.InnerProductLayer(size=4096, dropout=True)
+    norm = layers.NormalizationLayer(depth_radius=3, alpha=2e-05 ,beta=0.75,
+                                     bias=1.0)
     network = AlexNet((224, 224, 3), [conv1, norm, pool, conv2, norm,
-                                      pool, conv3, conv4, conv5, pool],
-                      [4096, 4096], 1000, train, test, batch_size)
+                                      pool, conv3, conv4, conv5, pool,
+                                      inner_product, inner_product],
+                      1000, train, test, batch_size)
 
     network.use_rmsprop_trainer(learning_rate, rho, epsilon,
                                 decay_rate=decay_rate,

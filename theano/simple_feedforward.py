@@ -33,14 +33,15 @@ class FeedforwardNetwork(object):
     """ Gets the state for pickling. """
     state = (self._weights, self._biases, self._layer_stack, self._cost,
              self._inputs, self._expected_outputs, self.__trainer_type,
-             self.__train_params, self._global_step, self._print_op)
+             self.__train_params, self._global_step, self._print_op, self._srng,
+             self._training)
     return state
 
   def __setstate__(self, state):
     """ Sets the state for unpickling. """
     self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
     self._expected_outputs, self.__trainer_type, self.__train_params, \
-    self._global_step, self._print_op = state
+    self._global_step, self._print_op, self._srng, self._training = state
 
   def _initialize_variables(self, train, test, batch_size):
     """ Initializes variables that are common to all subclasses.
@@ -66,6 +67,9 @@ class FeedforwardNetwork(object):
 
     self._print_op = theano.printing.Print("Debug: ")
 
+    self._srng = TT.shared_randomstreams.RandomStreams()
+    self._training = TT.lscalar("training")
+
   def __initialize_weights(self, layers, outputs):
     """ Initializes tensors containing the weights for each layer.
     Args:
@@ -75,10 +79,10 @@ class FeedforwardNetwork(object):
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
     # This is in case we have a single hidden layer.
-    fan_out = layers[0]
+    fan_out = layers[0].size
     for i in range(0, len(layers) - 1):
-      fan_in = layers[i]
-      fan_out = layers[i + 1]
+      fan_in = layers[i].size
+      fan_out = layers[i + 1].size
 
       # Initialize weights randomly.
       weights_values = np.asarray(np.random.normal(size=(fan_in, fan_out)),
@@ -93,11 +97,12 @@ class FeedforwardNetwork(object):
     self.__our_weights.append(theano.shared(weights_values))
     self.__weight_shapes.append((fan_out, outputs))
 
-  def __add_layers(self, first_inputs):
+  def __add_layers(self, first_inputs, layers):
     """ Adds as many hidden layers to our model as there are elements in
     __weights.
     Args:
-      first_inputs: The tensor to use as inputs to the first hidden layer. """
+      first_inputs: The tensor to use as inputs to the first hidden layer.
+      layers: The list of all the layers in this network. """
     our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
@@ -105,6 +110,7 @@ class FeedforwardNetwork(object):
     for i in range(0, len(self.__our_weights)):
       weights = self.__our_weights[i]
       _, fan_out = self.__weight_shapes[i]
+      layer = layers[i]
 
       bias_values = np.zeros((fan_out,), dtype=theano.config.floatX)
       bias = theano.shared(bias_values)
@@ -115,6 +121,13 @@ class FeedforwardNetwork(object):
       else:
         # For the last layer, we don't use an activation function.
         next_inputs = sums
+
+      if layer.dropout:
+        # Do dropout.
+        dropped_out = TT.switch(self._srng.binomial(size=next_inputs.shape,
+                                                    p=0.5), next_inputs, 0)
+        next_inputs = theano.ifelse.ifelse(self._training, dropped_out,
+                                           next_inputs)
 
     self._layer_stack = next_inputs
     # Now that we're done building our weights, add them to the global list of
@@ -131,12 +144,11 @@ class FeedforwardNetwork(object):
     self.__initialize_weights(layers, outputs)
 
     # Inputs and outputs.
-    num_inputs = layers[0]
     self._inputs = TT.fmatrix("inputs")
     self._expected_outputs = TT.ivector("expected_outputs")
 
     # Build actual layer model.
-    self.__add_layers(self._inputs)
+    self.__add_layers(self._inputs, layers)
 
     # Cost function.
     self._cost = TT.mean( \
@@ -184,7 +196,8 @@ class FeedforwardNetwork(object):
                               givens={self._inputs: \
                                       train_x[batch_start:batch_end],
                                       self._expected_outputs: \
-                                      train_y[batch_start:batch_end]})
+                                      train_y[batch_start:batch_end],
+                                      self._training: 1})
     return trainer
 
   def _build_rmsprop_trainer(self, cost, learning_rate, rho, epsilon, train_x,
@@ -217,7 +230,8 @@ class FeedforwardNetwork(object):
                               givens={self._inputs: \
                                       train_x[batch_start:batch_end],
                                       self._expected_outputs: \
-                                      train_y[batch_start:batch_end]})
+                                      train_y[batch_start:batch_end],
+                                      self._training: 1})
     return trainer
 
   def _build_predictor(self, test_x, batch_size):
@@ -234,7 +248,8 @@ class FeedforwardNetwork(object):
     batch_end = (index + 1) * batch_size
     predictor = theano.function(inputs=[index], outputs=outputs,
                                 givens={self._inputs: \
-                                        test_x[batch_start:batch_end]})
+                                        test_x[batch_start:batch_end],
+                                        self._training: 0})
     return predictor
 
   def _build_tester(self, test_x, test_y, batch_size):
@@ -257,7 +272,8 @@ class FeedforwardNetwork(object):
 
     tester = theano.function(inputs=[index], outputs=accuracy,
                              givens={self._inputs: \
-                                     test_x[batch_start:batch_end]})
+                                     test_x[batch_start:batch_end],
+                                     self._training: 0})
     return tester
 
   def _softmax_cross_entropy_with_logits(self, logits, labels):
@@ -281,7 +297,7 @@ class FeedforwardNetwork(object):
       layers: A list denoting the number of inputs of each layer.
       outputs: The number of outputs of the network. """
     self.__initialize_weights(layers, outputs)
-    self.__add_layers(inputs)
+    self.__add_layers(inputs, layers)
 
   def use_sgd_trainer(self, learning_rate, decay_rate=1, decay_steps=0):
     """ Tells it to use SGD to train the network.
