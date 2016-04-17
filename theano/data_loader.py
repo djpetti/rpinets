@@ -426,3 +426,19 @@ class Ilsvrc12(Loader):
   def get_non_shared_test_set(self):
     """ Gets a non-shared version of the test set, useful for AlexNet. """
     return self.__non_shared_test
+
+  def save(self, filename):
+    """ Allows the saving of synset associations for later use.
+    Args:
+      filename: The name of the file to write the saved data to. """
+    file_object = open(filename, "wb")
+    pickle.dump(self.__synsets, file_object)
+    file_object.close()
+
+  def load(self, filename):
+    """ Loads synset associations that have been saved to a file.
+    Args:
+      filename: The name of the file to load from. """
+    file_object = file(filename, "rb")
+    self.__synsets = pickle.load(file_object)
+    file_object.close()

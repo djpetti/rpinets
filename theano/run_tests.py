@@ -87,8 +87,11 @@ def run_imagenet_test():
 
   # Where we save the network.
   save_file = "alexnet.pkl"
+  synsets_save_file = "synsets.pkl"
 
   data = data_loader.Ilsvrc12(batch_size, load_batches, use_4d=True)
+  if os.path.exists(synsets_save_file):
+    data.load(synsets_save_file)
   train = data.get_train_set()
   test = data.get_test_set()
   _, cpu_labels = data.get_non_shared_test_set()
@@ -150,6 +153,8 @@ def run_imagenet_test():
     if iterations % 50 == 0:
       print "Saving network..."
       network.save(save_file)
+      # Save synset data as well.
+      data.save(synsets_save_file)
 
     iterations += 1
     train_batch_index += 1
