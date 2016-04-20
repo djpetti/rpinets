@@ -321,15 +321,13 @@ class Ilsvrc12(Loader):
     self._valid_set_size = 0
 
     images = self.__buffer.get_storage()
-    # Reshape the images if need be.
-    if self.__use_4d:
-       images = images.reshape(-1, 3, 224, 224)
+    # Show image thumbnails.
+    film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
+                                 for i in images[0:8]], axis=1)
+    cv2.imshow("test", film_strip)
+    # Force it to update the window.
+    cv2.waitKey(1)
 
-    # In leiu of actually reading all the images and finding the mean, we
-    # basically take the mean of an SRS.
-    if self.__mean == None:
-      self.__mean = np.mean(images_for_mean)
-      print "Using mean: %f" % (self.__mean)
     images = images.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
     images -= self.__mean

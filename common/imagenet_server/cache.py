@@ -195,7 +195,7 @@ class MemoryBuffer(object):
       self.__channels = 3
     else:
       self.__channels = 1
-    shape = (image_size, batch_size * image_size, self.__channels)
+    shape = (batch_size, self.__channels, image_size, image_size)
     self.__storage = np.empty(shape, dtype="uint8")
 
     self.__fill_index = 0
@@ -209,13 +209,10 @@ class MemoryBuffer(object):
       name: The name of the image. """
     logger.debug("Adding %s to buffer at %d." % (name, self.__fill_index))
 
-    next_fill_index = self.__fill_index + self.__image_size
-    self.__storage[0:self.__image_size,
-                   self.__fill_index:next_fill_index,
-                   0:self.__channels] = image
+    self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
+    self.__fill_index += 1
 
     self.__image_indices[name] = self.__fill_index
-    self.__fill_index = next_fill_index
 
   def get(self, name):
     """ Gets an image that was added to the buffer.
