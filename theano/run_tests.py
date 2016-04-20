@@ -23,6 +23,10 @@ def run_mnist_test():
 
   batch_size = 128
 
+  learning_rate = 0.01
+  rho = 0.9
+  epsilon = 1e-6
+
   conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=1)
   conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=32)
   pool = layers.PoolLayer()
@@ -31,6 +35,8 @@ def run_mnist_test():
   network = LeNetClassifier((28, 28, 1), [conv1, pool, conv2, pool,
                                           inner_product1, inner_product2],
                             10, train, test, batch_size)
+
+  network.use_rmsprop_trainer(learning_rate, rho, epsilon)
 
   print("Theano: Starting MNIST test...")
 
@@ -79,9 +85,12 @@ def run_imagenet_test():
   load_batches = 1
 
   # Learning rate hyperparameters.
-  learning_rate = 0.1
-  decay_steps = 1000
-  decay_rate = 0.8
+  learning_rate = 0.001
+  decay_steps = 10000
+  decay_rate = 1
+  momentum = 0.9
+  weight_decay = 0.0005
+
   rho = 0.9
   epsilon = 1e-6
 
@@ -99,31 +108,43 @@ def run_imagenet_test():
   if os.path.exists(save_file):
     # Load from the file.
     print "Theano: Loading network from file..."
-    network = LeNetClassifier.load(save_file, train, test, batch_size)
+    network = AlexNet.load(save_file, train, test, batch_size,
+                           learning_rate=learning_rate)
 
   else:
     # Build new network.
     conv1 = layers.ConvLayer(kernel_width=11, kernel_height=11, stride_width=4,
-                             stride_height=4, feature_maps=3, border_mode="half")
-    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=96,
+                             stride_height=4, feature_maps=3,
                              border_mode="half")
+    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=96,
+                             border_mode="half", start_bias=1)
     conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
                              border_mode="half")
-    conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384)
-    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384)
+    conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
+                             border_mode="half", start_bias=1)
+    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
+                             border_mode="half", start_bias=1)
     pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
                             stride_height=2)
-    inner_product = layers.InnerProductLayer(size=4096, dropout=True)
-    norm = layers.NormalizationLayer(depth_radius=3, alpha=2e-05 ,beta=0.75,
+    flatten = layers.InnerProductLayer(size=6 * 6 * 256, dropout=True,
+                                       start_bias=1)
+    inner_product1 = layers.InnerProductLayer(size=4096, dropout=True,
+                                              start_bias=1)
+    inner_product2 = layers.InnerProductLayer(size=4096)
+    norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
                                      bias=1.0)
-    network = AlexNet((224, 224, 3), [conv1, norm, pool, conv2, norm,
-                                      pool, conv3, conv4, conv5, pool,
-                                      inner_product, inner_product],
+    network = AlexNet((224, 224, 3), [conv1, pool, norm, conv2, pool,
+                                      norm, conv3, conv4, conv5, pool,
+                                      flatten, inner_product1, inner_product2],
                       1000, train, test, batch_size)
 
-    network.use_rmsprop_trainer(learning_rate, rho, epsilon,
-                                decay_rate=decay_rate,
-                                decay_steps=decay_steps)
+    network.use_sgd_trainer(learning_rate, momentum=momentum,
+                            weight_decay=weight_decay,
+                            decay_rate=decay_rate,
+                            decay_steps=decay_steps)
+    #network.use_rmsprop_trainer(learning_rate, rho, epsilon,
+    #                            decay_rate=decay_rate,
+    #                            decay_steps=decay_steps)
 
   print "Theano: Starting ImageNet test..."
 
@@ -134,14 +155,22 @@ def run_imagenet_test():
   train_batch_index = 0
   test_batch_index = 0
 
-  while iterations < 40000:
+  while iterations < 800000:
     if iterations % 50 == 0:
       # FIXME (danielp): Another hack for dealing with VRAM storage. We test in
-      # two parts, with each set of batches loaded individually.
-      network.test_half(test_batch_index, cpu_labels)
+      # five parts, with each set of batches loaded individually.
+      for _ in range(0, 4):
+        if not test:
+          # Test data is not loaded.
+          test = data.get_test_set()
+          _, cpu_labels = data.get_non_shared_test_set()
+        print cpu_labels
+        network.test_part(test_batch_index, cpu_labels)
+        test = None
       test = data.get_test_set()
       _, cpu_labels = data.get_non_shared_test_set()
       top_one, top_five = network.test(test_batch_index, cpu_labels)
+      test = None
       print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
             (iterations, top_one, top_five)
 
@@ -166,8 +195,6 @@ def run_imagenet_test():
     # Swap in new data if we need to.
     if (test_batch_index + 1) * batch_size > data.get_test_set_size():
       test_batch_index = 0
-      test = data.get_test_set()
-      _, cpu_labels = data.get_non_shared_test_set()
 
   elapsed = time.time() - start_time
   speed = iterations / elapsed

@@ -90,8 +90,7 @@ class LeNetClassifier(FeedforwardNetwork):
                first_layer.kernel_height, first_layer.kernel_width]
       self.__weight_shapes.append(shape)
 
-      weights_values = np.asarray(np.random.normal(size=shape),
-                                  dtype=theano.config.floatX)
+      weights_values = utils.initialize_xavier(shape)
       weights = theano.shared(weights_values)
       self.__our_weights.append(weights)
 
@@ -133,6 +132,7 @@ class LeNetClassifier(FeedforwardNetwork):
         out_shape_y = (out_shape_y - 1) / layer.stride_height + 1
 
       output_shape = (out_shape_x, out_shape_y)
+      print output_shape
 
     # Add last convolutional layer weights.
     final_x, final_y = output_shape
@@ -142,8 +142,7 @@ class LeNetClassifier(FeedforwardNetwork):
              next_layer.kernel_width]
     self.__weight_shapes.append(shape)
 
-    weights_values = np.asarray(np.random.normal(size=shape),
-                                dtype=theano.config.floatX)
+    weights_values = utils.initialize_xavier(shape)
     weights = theano.shared(weights_values)
     self._pweights = self._print_op(weights)
     self.__our_weights.append(weights)
@@ -174,7 +173,8 @@ class LeNetClassifier(FeedforwardNetwork):
                                          layer_spec.stride_height),
                               border_mode=layer_spec.border_mode)
         # Activation.
-        bias_values = np.zeros((output_feature_maps,), dtype=theano.config.floatX)
+        bias_values = np.full((output_feature_maps,), layer_spec.start_bias,
+                              dtype=theano.config.floatX)
         bias = theano.shared(bias_values)
         our_biases.append(bias)
         next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))

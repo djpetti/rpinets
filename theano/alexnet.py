@@ -8,6 +8,10 @@ from simple_lenet import LeNetClassifier
 
 class AlexNet(LeNetClassifier):
   """ Special class specifically for Alexnets. """
+  def __init__(self, *args, **kwargs):
+    self.__softmaxes = []
+
+    super(AlexNet, self).__init__(*args, **kwargs)
 
   def _build_tester(self, test_x, test_y, batch_size):
     """ Same as the superclass tester, but returns the raw softmax instead of
@@ -23,13 +27,13 @@ class AlexNet(LeNetClassifier):
                                      self._training: 0})
     return tester
 
-  def test_half(self, batch_index, expected_outputs):
+  def test_part(self, batch_index, expected_outputs):
     """ This is another terrible hack to deal with the lack of VRAM. What we do
-    is load half the testing batches, call this function, load the other half,
-    and call the normal test function. """
+    is load part of the testing batches, call this function, and keep doing so
+    until the last part, where we call the normal test function to actually give
+    us the total accuracy. """
     # Run for every translation.
-    self.__softmaxes = []
-    for i in range(0, 5):
+    for i in range(0, 2):
       self.__softmaxes.append(self._tester(batch_index + i))
 
   def test(self, batch_index, expected_outputs):
@@ -43,7 +47,7 @@ class AlexNet(LeNetClassifier):
     Returns:
       The accuracy of the network. """
     # Run for every translation.
-    for i in range(0, 5):
+    for i in range(0, 2):
       self.__softmaxes.append(self._tester(batch_index + i))
 
     # Find the mean distribution.
@@ -56,7 +60,7 @@ class AlexNet(LeNetClassifier):
     top_five = sort[:, -5:]
     # expected_outputs includes duplicate values for each patch.
     top_one_accuracy = np.mean(np.equal(expected_outputs[0:self._batch_size],
-                                        top_one))
+                                        np.transpose(top_one)))
 
     # Top five accuracy.
     correct = 0
@@ -65,4 +69,14 @@ class AlexNet(LeNetClassifier):
         correct += 1
     top_five_accuracy = float(correct) / self._batch_size
 
+    self.__softmaxes = []
+
     return top_one_accuracy, top_five_accuracy
+
+  @classmethod
+  def load(cls, *args, **kwargs):
+    network = super(AlexNet, cls).load(*args, **kwargs)
+
+    network.__softmaxes = []
+
+    return network
