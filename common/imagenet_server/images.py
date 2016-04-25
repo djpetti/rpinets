@@ -29,7 +29,7 @@ def _load_error_images():
   for image_name in file_names:
     image_path = os.path.join(BAD_IMAGES_DIR, image_name)
     image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if image == None:
+    if image is None:
       raise RuntimeError("Loading bad image %s failed." % (image_path))
     error_images.append(image)
 
@@ -96,7 +96,7 @@ def download_image(url, keep_color=False):
   else:
     flags = cv2.IMREAD_GRAYSCALE
   image = cv2.imdecode(image, flags)
-  if image == None:
+  if image is None:
     return image
 
   # Reshape the image.

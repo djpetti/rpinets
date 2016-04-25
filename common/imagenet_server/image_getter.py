@@ -251,7 +251,7 @@ class ImageGetter(object):
     synset, number = wnid.split("_")
 
     image = self.__get_cached_image(synset, number)
-    if image == None:
+    if image is None:
       # We have to download the image instead.
       self.__download_manager.download_new(synset, number, url)
     else:

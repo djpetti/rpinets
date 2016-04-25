@@ -34,7 +34,7 @@ class DownloaderProcess(multiprocessing.Process):
 
     # Download the image.
     image = images.download_image(self.__url, keep_color=True)
-    if image == None:
+    if image is None:
       logging.warning("Failed to download %s." % (self.__url))
       self.__image_queue.put((self.__synset, self.__number, self.__url, None))
       return
@@ -96,7 +96,7 @@ class DownloadManager(object):
       data = False
     while not self.__image_queue.empty():
       synset, name, url, image = self.__image_queue.get()
-      if image == None:
+      if image is None:
         # Download failed.
         self.__failures.append((synset, name, url))
         continue
