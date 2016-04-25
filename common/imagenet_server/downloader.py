@@ -38,7 +38,6 @@ class DownloaderProcess(multiprocessing.Process):
       logging.warning("Failed to download %s." % (self.__url))
       self.__image_queue.put((self.__synset, self.__number, self.__url, None))
       return
-    image = images.reshape_image(image)
 
     # Save the image to the queue.
     logging.debug("Saving image: %s_%s" % (self.__synset, self.__number))
