@@ -17,7 +17,26 @@ import images
 logger = logging.getLogger(__name__)
 
 
-class DiskCache(object):
+class Cache(object):
+  """ Defines an interface for caches. """
+
+  def add(self, image, name, synset):
+    """ Add a new image to the cache.
+    Args:
+      image: The image to add.
+      name: A unique name for the image.
+      synset: The synset of the image. """
+    raise NotImplementedError("add() must be implemented by subclass.")
+
+  def get(self, synset, name):
+    """ Gets an image from the cache.
+    Args:
+      synset: The synset the image belongs to.
+      name: The name of the image. """
+    raise NotImplementedError("get() must be implemented by subclass.")
+
+
+class DiskCache(Cache):
   """ Caches data to the HDD. """
 
   def __init__(self, location, max_size):
@@ -26,6 +45,8 @@ class DiskCache(object):
       location: Folder to store the cache in. Will be created if it doesn't
       exist.
       max_size: The maximum size, in bytes, of the cache. """
+    super(DiskCache, self).__init__()
+
     # Total size of the cache.
     self.__total_cache_size = 0
     self.__max_size = max_size
@@ -112,7 +133,7 @@ class DiskCache(object):
     image_number = path_elements[-1][5:][:-4]
     self.__synsets[synset].remove(image_number)
 
-  def add_synset(self, name, words):
+  def __add_synset(self, name, words):
     """ Adds a new synset to the cache.
     Args:
       name: The name of the synset.
@@ -140,7 +161,7 @@ class DiskCache(object):
       logger.debug("Adding new synset to cache: %s", synset)
       # Get the words for this synset.
       words = images.download_words(synset)
-      self.add_synset(synset, words)
+      self.__add_synset(synset, words)
 
     image_path = self.__image_path(synset, name)
 
@@ -157,79 +178,93 @@ class DiskCache(object):
     # Make sure we stay within the size constraint.
     self.__maintain_size()
 
-  def get(self, synset, image):
+  def get(self, synset, name):
     """ Gets an image from the cache.
     Args:
       synset: The name of the synset it belongs to.
-      image: The image number in the synset.
+      name: The image name in the synset.
     Returns: The image data, or None if the image (or synset) doesn't exist in
              the cache. """
     if synset not in self.__synsets:
       return None
-    if image not in self.__synsets[synset]:
+    if name not in self.__synsets[synset]:
       return None
 
-    image_path = self.__image_path(synset, image)
+    image_path = self.__image_path(synset, name)
 
     # Read the image data.
     image = cv2.imread(image_path, cv2.CV_LOAD_IMAGE_UNCHANGED)
     self.__file_accesses[image_path] = time.time()
+
     return image
 
-class MemoryBuffer(object):
+class MemoryBuffer(Cache):
   """ Set of images stored contiguously in memory. This is designed so that it
   can be used as a staging area before a batch is transferred into GPU memory.
   """
 
-  def __init__(self, image_size, batch_size, color=False):
+  def __init__(self, image_size, num_images, channels=1):
     """
     Args:
       image_size: Size of one side of a square image.
-      batch_size: How many images are in a batch.
-      color: If true, assume the images are in color, otherwise, they are not.
+      num_images: How many images this buffer should be able to hold.
+      channels: Number of channels the images have.
     """
+    super(MemoryBuffer, self).__init__()
+
     self.__image_size = image_size
-    self.__batch_size = batch_size
+    self.__num_images = num_images
     # This will be are underlying storage for the cache.
-    if color:
-      self.__channels = 3
-    else:
-      self.__channels = 1
-    shape = (batch_size, self.__channels, image_size, image_size)
+    self.__channels = channels
+    shape = (self.__num_images, self.__channels, image_size, image_size)
     self.__storage = np.empty(shape, dtype="uint8")
 
     self.__fill_index = 0
     # Maps image names to indices in the underlying array.
     self.__image_indices = {}
+    # Keeps a list of image synsets in the order that they were added.
+    self.__labels = []
 
-  def add(self, image, name):
+  def add(self, image, name, synset):
     """ Adds a new image to the buffer.
     Args:
       image: The image data to add.
-      name: The name of the image. """
+      name: The name of the image.
+      synset: The synset of the image. """
     logger.debug("Adding %s to buffer at %d." % (name, self.__fill_index))
 
     self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
     self.__fill_index += 1
 
-    self.__image_indices[name] = self.__fill_index
+    unique_identifier = "%s_%s" % (synset, name)
+    self.__image_indices[unique_identifier] = self.__fill_index
 
-  def get(self, name):
+    self.__labels.append(synset)
+
+  def get(self, synset, name):
     """ Gets an image that was added to the buffer.
     Args:
       name: The name of the image.
     Returns:
       The image data. """
-    index = self.__image_indices[name]
+    unique_identifier = "%s_%s" % (synset, name)
+    index = self.__image_indices[unique_identifier]
 
     return self.__storage[0:self.__image_size, index:index + self.__image_size,
                           0:self.__channels]
 
   def get_storage(self):
-    """ Returns the entire buffer, so that it can be bulk-loaded. """
-    return self.__storage
+    """ Returns the entire buffer, so that it can be bulk-loaded, as well as the
+    labels for every item in the buffer. """
+    return (self.__storage, self.__labels)
 
   def clear(self):
     """ Deletes everything in the cache. """
     self.__fill_index = 0
     self.__image_indices = {}
+
+  def get_max_size(self):
+    """
+    Returns:
+      The maximum number of images that can be stored in this buffer. """
+    return self.__num_images

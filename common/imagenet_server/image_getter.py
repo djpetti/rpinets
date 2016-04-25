@@ -2,12 +2,13 @@ import json
 import logging
 import os
 import random
+import time
 import urllib2
 
 import cv2
 
 import cache
-import images
+import downloader
 
 
 logger = logging.getLogger(__name__)
@@ -15,15 +16,17 @@ logger = logging.getLogger(__name__)
 
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
-  # Minimum synset size to use.
-  MINIMUM_SYNSET_SIZE = 500
-
-  def __init__(self, synset_location):
+  def __init__(self, synset_location, batch_size):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
-      exist. """
+      exist.
+      The size of each batch to load. """
     self.__cache = cache.DiskCache("image_cache", 50000000000)
+    self.__mem_buffer = cache.MemoryBuffer(256, batch_size, channels=3)
+    self.__download_manager = downloader.DownloadManager(200,
+        [self.__cache, self.__mem_buffer])
+    self.__batch_size = batch_size
 
     self.__synset_location = synset_location
     if not os.path.exists(self.__synset_location):
@@ -167,9 +170,11 @@ class ImageGetter(object):
         full_path = os.path.join(self.__synset_location, path)
 
         synset_file = file(full_path)
-        # Storing stuff in unicode takes up a massive amount of memory.
+        # Storing stuff in the default unicode format takes up a
+        # massive amount of memory.
         self.__synsets[synset_name] = \
-            [str(elem) for elem in json.load(synset_file)]
+            [[elem[0].encode("utf8"), elem[1].encode("utf8")] \
+             for elem in json.load(synset_file)]
         synset_file.close()
 
         loaded.add(synset_name)
@@ -196,67 +201,77 @@ class ImageGetter(object):
 
     return [wnid, url]
 
-  def get_random_batch(self, size):
+  def get_random_batch(self):
     """ Loads a random batch of images from the whole dataset.
-    Args:
-      size: The size of the batch to load.
     Returns:
-      A list of the loaded images. """
-    logger.info("Getting batch of size %d.", size)
+      The array of loaded images, and a list of the synsets each image belongs
+      to. """
+    logger.info("Getting batch.")
+
+    self.__mem_buffer.clear()
 
     # Keeps track of images that were already used this batch.
     self.__already_picked = set([])
 
     # First, figure out which images we want.
     batch = []
-    while len(batch) < size:
-      wnid, url = self.__pick_random_image()
+    synsets = []
+    # Try to download initial images.
+    for _ in range(0, self.__batch_size):
+      self.__load_random_image()
 
-      image = self.__get_image_from_url(wnid, url)
-      if image == None:
-        # Remove the image.
+    # Wait for all the downloads to complete, replacing any ones that fail.
+    while self.__download_manager.update():
+      failures = self.__download_manager.get_failures()
+      if len(failures):
+        logger.debug("Replacing %d failed downloads." % (len(failures)))
+
+      # Remove failed images.
+      for synset, name, url in failures:
+        # Load a new image to replace it.
+        self.__load_random_image()
+
+        # Remove failed image.
+        wnid = "%s_%s" % (synset, name)
         logger.info("Removing bad image %s." % (wnid))
-        synset, _ = wnid.split("_")
         self.__synsets[synset].remove([wnid, url])
         self.__synset_sizes[synset] -= 1
         # Update the json file.
-        self.__save_synset(synset)
-        continue
+        self.__save_synset(synset, self.__synsets[synset])
 
-      cv2.imshow("loading", image)
-      # Force it to update the window.
-      cv2.waitKey(1)
-      batch.append(image)
+      time.sleep(1)
 
-    return batch
+    return self.__mem_buffer.get_storage()
 
-  def __get_image_from_url(self, wnid, url):
-    """ Given a URL, it gets the corresponding image from the best location
-    possible.
+  def __load_random_image(self):
+    """ Loads a random image from either the cache or the internet. If loading
+    from the internet, it adds it to the download manager, otherwise, it adds
+    them to the memory buffer. """
+    wnid, url = self.__pick_random_image()
+    synset, number = wnid.split("_")
+
+    image = self.__get_cached_image(synset, number)
+    if image == None:
+      # We have to download the image instead.
+      self.__download_manager.download_new(synset, number, url)
+    else:
+      self.__mem_buffer.add(image, number, synset)
+
+  def __get_cached_image(self, synset, image_number):
+    """ Checks if an image is in the cache, and returns it.
     Args:
-      wnid: The wnid (with image number) of the image in question.
-      url: The URL of the image.
+      synset: The synset of the image.
+      image_number: The image number in the synset.
     Returns:
-      The actual image data, or None if the download failed. """
+      The actual image data, or None if the image is not in the cache. """
     # First check in the cache for the image.
-    synset, image_number = wnid.split("_")
     cached_image = self.__cache.get(synset, image_number)
     if cached_image != None:
       # We had a cached copy, so we're done.
-      logger.debug("Found image in cache: %s", wnid)
+      logger.debug("Found image in cache: %s_%s" % (synset, image_number))
       return cached_image
 
-    # Otherwise, we have to download it.
-    downloaded_image = images.download_image(url)
-    if downloaded_image == None:
-      # Download failed.
-      return None
-    # Reshape it too so it's suitable for use.
-    downloaded_image = images.reshape_image(downloaded_image)
-    # Add it to the cache.
-    self.__cache.add(downloaded_image, image_number, synset)
-
-    return downloaded_image
+    return None
 
   def get_synsets(self):
     return self.__synsets
