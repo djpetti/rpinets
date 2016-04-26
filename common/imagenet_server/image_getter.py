@@ -8,6 +8,7 @@ import urllib2
 import cv2
 
 import cache
+import data_augmentation
 import downloader
 
 
@@ -64,9 +65,9 @@ class ImageGetter(object):
       just the numbers. """
     self.__cache = cache.DiskCache("image_cache", 50000000000,
                                    download_words=download_words)
-    self.__mem_buffer = cache.MemoryBuffer(256, batch_size, channels=3)
+    self.__mem_buffer = cache.MemoryBuffer(224, batch_size, channels=3)
     self.__download_manager = downloader.DownloadManager(200,
-        [self.__cache, self.__mem_buffer])
+        self.__cache, self.__mem_buffer)
     self.__batch_size = batch_size
 
     self.__synset_location = synset_location
@@ -320,6 +321,11 @@ class ImageGetter(object):
     if cached_image != None:
       # We had a cached copy, so we're done.
       logger.debug("Found image in cache: %s_%s" % (synset, image_number))
+
+      # Select a patch.
+      patches = data_augmentation.extract_patches(cached_image)
+      cached_image = patches[random.randint(0, len(patches) - 1)]
+
       return cached_image
 
     return None
