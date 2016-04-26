@@ -41,8 +41,12 @@ class ImageGetter(object):
 
     # Calculate and store sizes for each synset.
     self.__synset_sizes = {}
+    self.__total_images = 0
     for synset, urls in self.__synsets.iteritems():
       self.__synset_sizes[synset] = len(urls)
+      self.__total_images += len(urls)
+
+    logger.info("Have %d total images in database." % (self.__total_images))
 
   def __download_image_list(self, loaded):
     """ Downloads a comprehensive list of all images available.
@@ -194,14 +198,19 @@ class ImageGetter(object):
     """ Picks a random image from our database.
     Returns:
       wnid and url of the image. """
-    # Pick random synset.
-    keys = self.__synsets.keys()
-    synset_index = random.randint(0, len(keys) - 1)
-    synset = keys[synset_index]
+    # Pick a random image.
+    image_number = random.randint(0, self.__total_images - 1)
+    # Traverse our map of synset sizes until we find this image.
+    total = 0
+    for synset, size in self.__synset_sizes.iteritems():
+      total += size
+      if total > image_number:
+        # This is the image we want.
+        use_synset = synset
+        use_index = size - (total - image_number)
+        break
 
-    # Pick random image from that synset.
-    image_index = random.randint(0, self.__synset_sizes[synset] - 1)
-    wnid, url = self.__synsets[synset][image_index]
+    wnid, url = self.__synsets[use_synset][use_index]
 
     if wnid in self.__already_picked:
       # This is a duplicate, pick another.
@@ -242,6 +251,7 @@ class ImageGetter(object):
         logger.info("Removing bad image %s." % (wnid))
         self.__synsets[synset].remove([wnid, url])
         self.__synset_sizes[synset] -= 1
+        self.__total_images -= 1
         # Update the json file.
         self.__save_synset(synset, self.__synsets[synset])
 
