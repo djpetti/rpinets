@@ -34,7 +34,7 @@ class ImageGetter(object):
 
     self.__synsets = {}
     loaded = self.__load_synsets()
-    #self.__download_image_list(loaded)
+    self.__download_image_list(loaded)
 
     # Calculate and store sizes for each synset.
     self.__synset_sizes = {}
@@ -160,24 +160,30 @@ class ImageGetter(object):
     """ Loads synsets from a file.
     Returns:
       A set of the synsets that were loaded successfully. """
-
     loaded = set([])
+    loaded_text = []
+    logger.info("Loading synsets...")
+
     for path in os.listdir(self.__synset_location):
       if path.endswith(".json"):
         # Load synset from file.
         synset_name = path[:-5]
-        logger.info("Loading synset %s." % (synset_name))
+        logger.debug("Loading synset %s." % (synset_name))
         full_path = os.path.join(self.__synset_location, path)
 
         synset_file = file(full_path)
-        # Storing stuff in the default unicode format takes up a
-        # massive amount of memory.
-        self.__synsets[synset_name] = \
-            [[elem[0].encode("utf8"), elem[1].encode("utf8")] \
-             for elem in json.load(synset_file)]
+        loaded_text.append((synset_name, synset_file.read()))
         synset_file.close()
 
-        loaded.add(synset_name)
+    logger.info("De-jsoning...")
+    for synset_name, text in loaded_text:
+      # Storing stuff in the default unicode format takes up a
+      # massive amount of memory.
+      self.__synsets[synset_name] = \
+          [[elem[0].encode("utf8"), elem[1].encode("utf8")] \
+            for elem in json.loads(text)]
+
+      loaded.add(synset_name)
 
     return loaded
 
