@@ -248,7 +248,7 @@ class ImageGetter(object):
       if not self.__download_manager.update():
         break
 
-      time.sleep(1)
+      time.sleep(0.2)
 
     return self.__mem_buffer.get_storage()
 
