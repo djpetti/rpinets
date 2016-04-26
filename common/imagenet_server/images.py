@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import socket
+import ssl
 import urllib2
 import urlparse
 
@@ -69,13 +70,17 @@ def download_image(url, keep_color=False):
   Returns:
     The image data that was downloaded.
   """
-  url = _iri_to_uri(url)
   logger.info("Downloading new image: %s", url)
+  try:
+    url = _iri_to_uri(url)
+  except UnicodeDecodeError:
+    logger.warning("Error decoding URL: %s" % (e))
+    return None
 
   try:
     response = urllib2.urlopen(url, timeout=10)
   except (urllib2.HTTPError, urllib2.URLError, httplib.BadStatusLine,
-          socket.timeout, socket.error) as e:
+          socket.timeout, socket.error, ssl.CertificateError) as e:
     # Generally, this is because the image was not found.
     logger.warning("Image download failed with '%s'." % (e))
     return None
