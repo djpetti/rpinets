@@ -16,13 +16,16 @@ logger = logging.getLogger(__name__)
 
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
-  def __init__(self, synset_location, batch_size):
+  def __init__(self, synset_location, batch_size, download_words=False):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
       exist.
-      The size of each batch to load. """
-    self.__cache = cache.DiskCache("image_cache", 50000000000)
+      batch_size: The size of each batch to load.
+      download_words: Whether to download the words for each synset as well as
+      just the numbers. """
+    self.__cache = cache.DiskCache("image_cache", 50000000000,
+                                   download_words=download_words)
     self.__mem_buffer = cache.MemoryBuffer(256, batch_size, channels=3)
     self.__download_manager = downloader.DownloadManager(200,
         [self.__cache, self.__mem_buffer])

@@ -39,13 +39,17 @@ class Cache(object):
 class DiskCache(Cache):
   """ Caches data to the HDD. """
 
-  def __init__(self, location, max_size):
+  def __init__(self, location, max_size, download_words=False):
     """
     Args:
       location: Folder to store the cache in. Will be created if it doesn't
       exist.
-      max_size: The maximum size, in bytes, of the cache. """
+      max_size: The maximum size, in bytes, of the cache.
+      download_words: Whether to download the words for each synset as well as
+      just the numbers. """
     super(DiskCache, self).__init__()
+
+    self.__download_words = download_words
 
     # Total size of the cache.
     self.__total_cache_size = 0
@@ -82,6 +86,7 @@ class DiskCache(Cache):
 
       # Populate synsets dict.
       self.__synsets[directory] = set([])
+      found_words = False
       for item in os.listdir(full_path):
         if item.endswith(".jpg"):
           # This is an image.
@@ -91,6 +96,15 @@ class DiskCache(Cache):
           self.__account_for_size(image_path)
           # Get access time.
           self.__file_accesses[image_path] = os.stat(image_path).st_atime
+
+        if item.endswith(".json"):
+          # List of words for the synset.
+          found_words = True
+
+      # If we need to download synset words, and we haven't already, do that
+      # now.
+      if (self.__download_words and not found_words):
+        self.__download_words_for_synset(directory)
 
     logger.info("Total cache size: %d", self.__total_cache_size)
 
@@ -133,22 +147,33 @@ class DiskCache(Cache):
     image_number = path_elements[-1][5:][:-4]
     self.__synsets[synset].remove(image_number)
 
-  def __add_synset(self, name, words):
+  def __add_synset(self, name):
     """ Adds a new synset to the cache.
     Args:
-      name: The name of the synset.
-      words: List of words in the synset. """
+      name: The name of the synset. """
     # Make a directory to house the synset.
     location = os.path.join(self.__location, name)
     os.mkdir(location)
 
+    # Download words if we need to.
+    if self.__download_words:
+      self.__download_words_for_synset(name)
+
+    self.__synsets[name] = set([])
+
+  def __download_words_for_synset(self, synset):
+    """ Downloads the words that correspond to a particular synset.
+    Args:
+      synset: The name of the synset to download words for. """
+    # Get the words for this synset.
+    words = images.download_words(synset)
+
     # Store the words for the synset.
-    word_file_path = os.path.join(location, "%s.json" % (name))
+    location = os.path.join(self.__location, synset)
+    word_file_path = os.path.join(location, "%s.json" % (synset))
     word_file = open(word_file_path, "w")
     json.dump(words, word_file)
     word_file.close()
-
-    self.__synsets[name] = set([])
 
   def add(self, image, name, synset):
     """ Adds a new image to the cache. If the synset is not known, it
@@ -159,9 +184,7 @@ class DiskCache(Cache):
       synset: The name of the synset to add it to. """
     if synset not in self.__synsets:
       logger.debug("Adding new synset to cache: %s", synset)
-      # Get the words for this synset.
-      words = images.download_words(synset)
-      self.__add_synset(synset, words)
+      self.__add_synset(synset)
 
     image_path = self.__image_path(synset, name)
 
