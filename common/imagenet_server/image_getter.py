@@ -14,6 +14,44 @@ import downloader
 logger = logging.getLogger(__name__)
 
 
+def _parse_url_file(file_data, separator=" ", get_utf=False):
+  """ ImageNet generally uses a specific format to store the URLs of images.
+  This function parses data in that format.
+  Args:
+    file_data: The input data to parse.
+    separator: Default string used to separate WNID from URL in the file.
+    get_utf: If this is True, it will, in addition, return a version of the same
+    output that is encoded in UTF-8, which is more efficient if we're dumping to
+    a JSON file, since we need to encode it in this format anyway.
+  Returns:
+    A list of tuples, where each tuple contains a wnid of an image, and the URL
+    of that image. """
+  lines = file_data.split("\n")[:-1]
+  # Split ids and urls.
+  mappings = []
+  utf_mappings = []
+  for line in lines:
+    if not line.startswith("n"):
+      # Bad line.
+      continue
+
+    wnid, url = line.split(separator, 1)
+    try:
+      unicode_url = url.decode("utf8")
+    except UnicodeDecodeError:
+      # We got a URL that's not valid unicode. (It does happen.)
+      logger.warning("Skipping invalid URL: %s", url)
+      continue
+
+    mappings.append([wnid, url])
+    if get_utf:
+      utf_mappings.append([wnid, unicode_url])
+
+  if get_utf:
+    return mappings, utf_mappings
+  return mappings
+
+
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
   def __init__(self, synset_location, batch_size, download_words=False):
@@ -32,23 +70,28 @@ class ImageGetter(object):
     self.__batch_size = batch_size
 
     self.__synset_location = synset_location
-    if not os.path.exists(self.__synset_location):
-      os.mkdir(self.__synset_location)
 
-    self.__synsets = {}
-    loaded = self.__load_synsets()
-    self.__download_image_list(loaded)
+    self._synsets = {}
+    self._populate_synsets()
 
     # Calculate and store sizes for each synset.
     self.__synset_sizes = {}
     self.__total_images = 0
-    for synset, urls in self.__synsets.iteritems():
+    for synset, urls in self._synsets.iteritems():
       self.__synset_sizes[synset] = len(urls)
       self.__total_images += len(urls)
 
     logger.info("Have %d total images in database." % (self.__total_images))
 
-  def __download_image_list(self, loaded):
+  def _populate_synsets(self):
+    """ Populates the synset dictionary. """
+    if not os.path.exists(self.__synset_location):
+      os.mkdir(self.__synset_location)
+
+    loaded = self.__load_synsets()
+    self.__get_image_list(loaded)
+
+  def __get_image_list(self, loaded):
     """ Downloads a comprehensive list of all images available.
     Args:
       loaded: Set of synsets that were already loaded successfully. """
@@ -72,26 +115,11 @@ class ImageGetter(object):
 
       logger.info("Downloading urls for synset: %s", synset)
       response = urllib2.urlopen(base_url % (synset), timeout=1000)
-      lines = response.read().split("\n")[:-1]
-      # Split ids and urls.
-      mappings = []
-      utf_mappings = []
-      for line in lines:
-        if not line.startswith(synset):
-          # Bad line.
-          continue
 
-        wnid, url = line.split(" ", 1)
-        try:
-          unicode_url = url.decode("utf8")
-        except UnicodeDecodeError:
-          # We got a URL that's not valid unicode. (It does happen.)
-          logger.warning("Skipping invalid URL: %s", url)
-          continue
+      # Parse the image data.
+      mappings, utf_mappings = _parse_url_file(response.read(), get_utf=True)
 
-        mappings.append([wnid, url])
-        utf_mappings.append([wnid, unicode_url])
-      self.__synsets[synset] = mappings
+      self._synsets[synset] = mappings
       # Save it for later.
       self.__save_synset(synset, utf_mappings)
 
@@ -156,6 +184,10 @@ class ImageGetter(object):
     Args:
       synset: The name of the synset.
       data: The data that will be saved in the file. """
+    if not self.__synset_location:
+      # We're not saving synsets.
+      return
+
     logger.info("Saving synset: %s" % (synset))
 
     synset_path = os.path.join(self.__synset_location, "%s.json" % (synset))
@@ -186,7 +218,7 @@ class ImageGetter(object):
     for synset_name, text in loaded_text:
       # Storing stuff in the default unicode format takes up a
       # massive amount of memory.
-      self.__synsets[synset_name] = \
+      self._synsets[synset_name] = \
           [[elem[0].encode("utf8"), elem[1].encode("utf8")] \
             for elem in json.loads(text)]
 
@@ -210,7 +242,7 @@ class ImageGetter(object):
         use_index = size - (total - image_number)
         break
 
-    wnid, url = self.__synsets[use_synset][use_index]
+    wnid, url = self._synsets[use_synset][use_index]
 
     if wnid in self.__already_picked:
       # This is a duplicate, pick another.
@@ -249,11 +281,11 @@ class ImageGetter(object):
         # Remove failed image.
         wnid = "%s_%s" % (synset, name)
         logger.info("Removing bad image %s." % (wnid))
-        self.__synsets[synset].remove([wnid, url])
+        self._synsets[synset].remove([wnid, url])
         self.__synset_sizes[synset] -= 1
         self.__total_images -= 1
         # Update the json file.
-        self.__save_synset(synset, self.__synsets[synset])
+        self.__save_synset(synset, self._synsets[synset])
 
       if not self.__download_manager.update():
         break
@@ -293,4 +325,32 @@ class ImageGetter(object):
     return None
 
   def get_synsets(self):
-    return self.__synsets
+    return self._synsets
+
+
+class FilteredImageGetter(ImageGetter):
+  """ Works like an ImageGetter, but only loads images from a specific
+  pre-defined file containing image names and their URLs. """
+
+  def __init__(self, url_file, batch_size, **kwargs):
+    """
+    Args:
+      url_file: Name of the file containing the images to use.
+      batch_size: The size of each batch. """
+    self.__url_file = url_file
+
+    super(FilteredImageGetter, self).__init__(None, batch_size, **kwargs)
+
+  def _populate_synsets(self):
+    """ Populates the synsets dict. """
+    # Load data from the url file.
+    urls = file(self.__url_file).read()
+    images = _parse_url_file(urls, separator="\t")
+
+    # Separate it by synset and load it into the dictionary.
+    for wnid, url in images:
+      synset, _ = wnid.split("_")
+
+      if synset not in self._synsets:
+        self._synsets[synset] = []
+      self._synsets[synset].append([wnid, url])
