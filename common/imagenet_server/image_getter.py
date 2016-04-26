@@ -219,15 +219,12 @@ class ImageGetter(object):
     # Keeps track of images that were already used this batch.
     self.__already_picked = set([])
 
-    # First, figure out which images we want.
-    batch = []
-    synsets = []
     # Try to download initial images.
     for _ in range(0, self.__batch_size):
       self.__load_random_image()
 
     # Wait for all the downloads to complete, replacing any ones that fail.
-    while self.__download_manager.update():
+    while True:
       failures = self.__download_manager.get_failures()
       if len(failures):
         logger.debug("Replacing %d failed downloads." % (len(failures)))
@@ -244,6 +241,9 @@ class ImageGetter(object):
         self.__synset_sizes[synset] -= 1
         # Update the json file.
         self.__save_synset(synset, self.__synsets[synset])
+
+      if not self.__download_manager.update():
+        break
 
       time.sleep(1)
 

@@ -73,7 +73,7 @@ def download_image(url, keep_color=False):
   logger.info("Downloading new image: %s", url)
   try:
     url = _iri_to_uri(url)
-  except UnicodeDecodeError:
+  except UnicodeDecodeError as e:
     logger.warning("Error decoding URL: %s" % (e))
     return None
 
@@ -93,7 +93,11 @@ def download_image(url, keep_color=False):
     logger.warning("Got Flickr 'photo unavailable' error.")
     return None
 
-  raw_data = response.read()
+  try:
+    raw_data = response.read()
+  except socket.timeout as e:
+    logger.warning("Image download failed with '%s'." % (e))
+    return None
 
   image = np.asarray(bytearray(raw_data), dtype="uint8")
   if keep_color:
