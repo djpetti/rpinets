@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 BAD_IMAGES_DIR = "error_images"
+# How close an image has to be to a known bad image to throw it out.
+ERROR_IMAGE_THRESH = 1.0
 
 
 def _load_error_images():
@@ -57,7 +59,8 @@ def _check_bad_image(image):
   Returns: True if it thinks the image is bad, False otherwise. """
   # Check if it matches any of the error images.
   for error_image in _error_images:
-    if np.all(np.equal(image, error_image)):
+    distance = abs(np.mean(image.astype("int8") - error_image.astype("int8")))
+    if distance < ERROR_IMAGE_THRESH:
       return True
 
   return False
