@@ -55,12 +55,15 @@ def _parse_url_file(file_data, separator=" ", get_utf=False):
 
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
-  def __init__(self, synset_location, batch_size, download_words=False):
+  def __init__(self, synset_location, batch_size, test_percentage=0.1,
+               download_words=False):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
       exist.
       batch_size: The size of each batch to load.
+      test_percentage: The percentage of the total images that will be used for
+      testing.
       download_words: Whether to download the words for each synset as well as
       just the numbers. """
     self.__cache = cache.DiskCache("image_cache", 50000000000,
@@ -84,6 +87,8 @@ class ImageGetter(object):
 
     logger.info("Have %d total images in database." % (self.__total_images))
 
+    self.__choose_test_images(test_percentage)
+
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
     if not os.path.exists(self.__synset_location):
@@ -91,6 +96,20 @@ class ImageGetter(object):
 
     loaded = self.__load_synsets()
     self.__get_image_list(loaded)
+
+  def __choose_test_images(self, test_percentage):
+    """ Chooses the images to use in the testing set.
+    Args:
+      test_percentage: The percentage of the total number of images that are
+      testing images. """
+    required_images = int(self.__total_images * test_percentage)
+
+    self.__already_picked = set([])
+    self.__test_images = set([])
+    for i in range(0, required_images):
+      wnid, _, index = self.__pick_random_image()
+      synset, _ = wnid.split("_")
+      self.__test_images.add((synset, index))
 
   def __get_image_list(self, loaded):
     """ Downloads a comprehensive list of all images available.
@@ -230,7 +249,7 @@ class ImageGetter(object):
   def __pick_random_image(self):
     """ Picks a random image from our database.
     Returns:
-      wnid and url of the image. """
+      wnid and url, and index of the image in it's synset list. """
     # Pick a random image.
     image_number = random.randint(0, self.__total_images - 1)
     # Traverse our map of synset sizes until we find this image.
@@ -243,6 +262,10 @@ class ImageGetter(object):
         use_index = size - (total - image_number)
         break
 
+    if (use_synset, use_index) in self.__test_images:
+      # This is a test image, don't use it here.
+      return self.__pick_random_image()
+
     wnid, url = self._synsets[use_synset][use_index]
 
     if wnid in self.__already_picked:
@@ -250,10 +273,20 @@ class ImageGetter(object):
       return self.__pick_random_image()
     self.__already_picked.add(wnid)
 
-    return [wnid, url]
+    return [wnid, url, use_index]
 
-  def get_random_batch(self):
+  def __pick_random_test_image(self):
+    """ Picks a random image from the test set.
+    Returns:
+      wnid and url of the image. """
+    synset, index = random.choice(tuple(self.__test_images))
+    return self._synsets[synset][index]
+
+  def get_random_batch(self, testing=False):
     """ Loads a random batch of images from the whole dataset.
+    Args:
+      testing: Whether to use testing images. Defaults to False, in which case
+      it will use training images.
     Returns:
       The array of loaded images, and a list of the synsets each image belongs
       to. """
@@ -266,7 +299,7 @@ class ImageGetter(object):
 
     # Try to download initial images.
     for _ in range(0, self.__batch_size):
-      self.__load_random_image()
+      self.__load_random_image(testing=testing)
 
     # Wait for all the downloads to complete, replacing any ones that fail.
     while True:
@@ -277,7 +310,7 @@ class ImageGetter(object):
       # Remove failed images.
       for synset, name, url in failures:
         # Load a new image to replace it.
-        self.__load_random_image()
+        self.__load_random_image(testing=testing)
 
         # Remove failed image.
         wnid = "%s_%s" % (synset, name)
@@ -295,11 +328,17 @@ class ImageGetter(object):
 
     return self.__mem_buffer.get_storage()
 
-  def __load_random_image(self):
+  def __load_random_image(self, testing=False):
     """ Loads a random image from either the cache or the internet. If loading
     from the internet, it adds it to the download manager, otherwise, it adds
-    them to the memory buffer. """
-    wnid, url = self.__pick_random_image()
+    them to the memory buffer.
+    Args:
+      testing: Whether to use testing images. Defaults to False, in which case
+      it will use training images. """
+    if testing:
+      wnid, url = self.__pick_random_test_image()
+    else:
+      wnid, url, _ = self.__pick_random_image()
     synset, number = wnid.split("_")
 
     image = self.__get_cached_image(synset, number)
