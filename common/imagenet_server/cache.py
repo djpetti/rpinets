@@ -264,17 +264,58 @@ class MemoryBuffer(Cache):
 
     self.__labels.append(synset)
 
+  def add_patches(self, batch_size, patches, name, synset):
+    """ Similar to add, except that it adds multiple patches for the same image.
+    Args:
+      batch_size: The base batch size, so it knows how much to separate each
+      patch by in the underlying storage.
+      patches: The list of patches to store.
+      name: The name of the image.
+      synset: The synset of the image. """
+    logger.debug("Adding %s to buffer starting at %d." % \
+                 (name, self.__fill_index))
+
+    patch_locations = []
+    for i, patch in enumerate(patches):
+      location = self.__fill_index + i * batch_size
+      self.__storage[location] = np.transpose(patch, (2, 0, 1))
+      patch_locations.append(location)
+    self.__fill_index += 1
+
+    unique_identifier = "%s_%s" % (synset, name)
+    self.__image_indices[unique_identifier] = patch_locations
+
+    self.__labels.append(synset)
+
   def get(self, synset, name):
-    """ Gets an image that was added to the buffer.
+    """ Gets an image that was added to the buffer. If there are multiple
+    patches of this image, it returns a list of all the patches.
     Args:
       name: The name of the image.
     Returns:
       The image data. """
+    def get_image(index):
+      """ Get the image at the specified index.
+      Args:
+        index: The index of the image.
+      Returns:
+        The image data. """
+      return self.__storage[0:self.__image_size,
+                            index:index + self.__image_size,
+                            0:self.__channels]
+
+
     unique_identifier = "%s_%s" % (synset, name)
     index = self.__image_indices[unique_identifier]
 
-    return self.__storage[0:self.__image_size, index:index + self.__image_size,
-                          0:self.__channels]
+    if type(index) is list:
+      # There are multiple patches.
+      patches = []
+      for i in index:
+        patches.append(get_image(i))
+      return patches
+
+    return get_image(index)
 
   def get_storage(self):
     """ Returns the entire buffer, so that it can be bulk-loaded, as well as the

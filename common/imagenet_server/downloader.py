@@ -44,26 +44,30 @@ class DownloaderProcess(multiprocessing.Process):
 
     # We should choose a patch here before it gets put in the buffer.
     patches = data_augmentation.extract_patches(image)
-    patch = patches[random.randint(0, len(patches) - 1)]
 
     # Save the image to the queue.
     logging.debug("Saving image: %s_%s" % (self.__synset, self.__number))
     self.__image_queue.put((self.__synset, self.__number, self.__url, image,
-                            patch))
+                            patches))
 
 
 class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
 
-  def __init__(self, process_limit, disk_cache, mem_buffer):
+  def __init__(self, process_limit, disk_cache, mem_buffer,
+               patch_separation=-1):
     """
     Args:
       process_limit: Maximum number of downloads we can run at one time.
       disk_cache: DiskCache to save downloaded images to.
-      mem_buffer: MemoryBuffer to save downloaded images to. """
+      mem_buffer: MemoryBuffer to save downloaded images to.
+      patch_separation: How much to separate each patch of the same image in the
+      memory buffer. Defaults to -1, in which case only one random patch will be
+      saved for each image. """
     self.__process_limit = process_limit
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
+    self.__patch_separation = patch_separation
 
     # Downloads that are waiting to start.
     self.__download_queue = collections.deque()
@@ -105,15 +109,22 @@ class DownloadManager(object):
     if self.__image_queue.empty():
       data = False
     while not self.__image_queue.empty():
-      synset, name, url, image, patch = self.__image_queue.get()
+      synset, name, url, image, patches = self.__image_queue.get()
       if image is None:
         # Download failed.
         self.__failures.append((synset, name, url))
         continue
 
-      # Otherwise, add it to the caches.
+      if self.__patch_separation < 0:
+        # Choose a random patch.
+        patch = patches[random.randint(0, len(patches) - 1)]
+        self.__mem_buffer.add(patch, name, synset)
+      else:
+        self.__mem_buffer.add_patches(self.__patch_separation, patches, name,
+                                      synset)
+
+      # Add it to the disk cache.
       self.__disk_cache.add(image, name, synset)
-      self.__mem_buffer.add(patch, name, synset)
 
     return processes or data
 
