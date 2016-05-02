@@ -50,12 +50,25 @@ class DownloaderProcess(multiprocessing.Process):
     self.__image_queue.put((self.__synset, self.__number, self.__url, image,
                             patches))
 
+  def start(self, *args, **kwargs):
+    self.__start_time = time.time()
+
+    super(DownloaderProcess, self).start(*args, **kwargs)
+
+  def get_start_time(self):
+    """ Returns: The time at which this process was started. """
+    return self.__start_time
+
+  def get_info(self):
+    """ Returns: Image synset, number and url. """
+    return self.__synset, self.__number, self.__url
+
 
 class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
 
   def __init__(self, process_limit, disk_cache, mem_buffer,
-               patch_separation=-1):
+               patch_separation=-1, timeout=10):
     """
     Args:
       process_limit: Maximum number of downloads we can run at one time.
@@ -63,11 +76,13 @@ class DownloadManager(object):
       mem_buffer: MemoryBuffer to save downloaded images to.
       patch_separation: How much to separate each patch of the same image in the
       memory buffer. Defaults to -1, in which case only one random patch will be
-      saved for each image. """
+      saved for each image.
+      timeout: How long downloader processes can run before we terminate them. """
     self.__process_limit = process_limit
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
     self.__patch_separation = patch_separation
+    self.__timeout = timeout
 
     # Downloads that are waiting to start.
     self.__download_queue = collections.deque()
@@ -92,6 +107,14 @@ class DownloadManager(object):
     periodically.
     Returns:
       True if there are still more downloads pending, False otherwise. """
+    # Check for any download processes that have taken too long.
+    for process in multiprocessing.active_children():
+      if (time.time() - process.get_start_time()) > self.__timeout:
+        logger.warning("Terminating downloader process that took too long.")
+        process.terminate()
+        # Add it to the failures list, because it counts.
+        self.__failures.append(process.get_info())
+
     processes = True
     while len(multiprocessing.active_children()) < self.__process_limit:
       # We're free to add more processes.
