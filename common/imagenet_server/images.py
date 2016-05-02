@@ -171,7 +171,7 @@ def reshape_image(image):
 
 # Pre-load error images.
 if not os.path.exists(BAD_IMAGES_DIR):
-  logger.warning("Could not find bad images directory '%s'." % \
-                 (BAD_IMAGES_DIR))
+  raise RuntimeError("Could not find bad images directory '%s'." % \
+                     (BAD_IMAGES_DIR))
 else:
   _error_images = _load_error_images()
