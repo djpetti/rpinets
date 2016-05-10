@@ -20,6 +20,7 @@ from common.imagenet_server import cache
 
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
+MEAN_FILE = "mean.txt"
 
 ILSVRC12_LOCATION = "/home/daniel/datasets/ilsvrc12"
 VAL_SYNSETS_FILE = os.path.join(ILSVRC12_LOCATION, "val_synsets.json")
@@ -182,15 +183,42 @@ class Ilsvrc12(Loader):
 
     # Labels have to be integers, so that means we have to map synsets to
     # integers.
-    self.__synets = {}
+    self.__synsets = {}
     self.__current_label = 0
 
-    self.__mean = None
+    self.__mean = float(file(MEAN_FILE).read())
 
     self.__current_patch = 0
     self.__original_images = []
 
     self.__val_synsets = self.__load_val_synsets()
+
+    self.__current_image = 0
+    self.__images = self.__shuffle()
+
+  def __shuffle(self):
+    """ Shuffles the images that we have at our disposal.
+    Returns:
+      The list of shuffled images. """
+    print "Shuffling images..."
+    base_path = os.path.join(ILSVRC12_LOCATION, "train")
+
+    # Get all the synsets.
+    possible_synsets = os.listdir(base_path)
+
+    # Get all the images into a list.
+    images = []
+    for synset in possible_synsets:
+      image_dir_path = os.path.join(base_path, synset)
+      possible_images = os.listdir(image_dir_path)
+      for image in possible_images:
+        images.append((synset, image))
+
+    # Now shuffle the list.
+    random.shuffle(images)
+
+    print "Done."
+    return images
 
   def __load_val_synsets(self):
     """ Loads the JSON file that tells us which validation images belong to
@@ -216,27 +244,30 @@ class Ilsvrc12(Loader):
       valid: Whether to load from the validation images.
     Returns:
       The image, and the synset that the image belongs to. """
-    if valid:
-      base_path = os.path.join(ILSVRC12_LOCATION, "val")
-    else:
-      base_path = os.path.join(ILSVRC12_LOCATION, "train")
-
     while True:
-      if valid:
+      if not valid:
+        # Just get the next shuffled image.
+        if self.__current_image >= len(self.__images):
+          # We wrapped.
+          self.__current_image = 0
+
+        synset, image = self.__images[self.__current_image]
+        self.__current_image += 1
+        image_path = os.path.join(ILSVRC12_LOCATION, "train", synset, image)
+
+      else:
+        base_path = os.path.join(ILSVRC12_LOCATION, "val")
+
         # The images are directly in the val directory.
         image_dir_path = base_path
-      else:
-        # Choose a synset.
-        possible_synsets = os.listdir(base_path)
-        synset = possible_synsets[random.randint(0, len(possible_synsets) - 1)]
-        image_dir_path = os.path.join(base_path, synset)
 
-      # Choose an image.
-      possible_images = os.listdir(image_dir_path)
-      image_name = possible_images[random.randint(0, len(possible_images) - 1)]
+        # Choose an image.
+        possible_images = os.listdir(image_dir_path)
+        image_name = possible_images[random.randint(0, len(possible_images) - 1)]
+
+        image_path = os.path.join(image_dir_path, image_name)
 
       # Open the image.
-      image_path = os.path.join(image_dir_path, image_name)
       image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
 
       if image == None:
@@ -294,17 +325,17 @@ class Ilsvrc12(Loader):
           image = patches[patch]
 
         # Perform PCA.
-        image = self.__pca(image)
+        #image = self.__pca(image)
 
         self.__buffer.add(image, i)
 
         # Find a label.
-        if synset in self.__synets:
-          label = self.__synets[synset]
+        if synset in self.__synsets:
+          label = self.__synsets[synset]
         else:
           # We need a new label.
           label = self.__current_label
-          self.__synets[synset] = label
+          self.__synsets[synset] = label
           self.__current_label += 1
         labels.append(label)
 
@@ -321,15 +352,13 @@ class Ilsvrc12(Loader):
     self._valid_set_size = 0
 
     images = self.__buffer.get_storage()
-    # Reshape the images if need be.
-    if self.__use_4d:
-       images = images.reshape(-1, 3, 224, 224)
+    # Show image thumbnails.
+    film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
+                                 for i in images[0:8]], axis=1)
+    cv2.imshow("test", film_strip)
+    # Force it to update the window.
+    cv2.waitKey(1)
 
-    # In leiu of actually reading all the images and finding the mean, we
-    # basically take the mean of an SRS.
-    if self.__mean == None:
-      self.__mean = np.mean(images_for_mean)
-      print "Using mean: %f" % (self.__mean)
     images = images.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
     images -= self.__mean
@@ -357,12 +386,12 @@ class Ilsvrc12(Loader):
 
     # Flip everything as well.
     top_left_flip = np.fliplr(top_left)
-    tor_right_flip = np.fliplr(top_right)
+    top_right_flip = np.fliplr(top_right)
     bottom_left_flip = np.fliplr(bottom_left)
     bottom_right_flip = np.fliplr(bottom_right)
     center_flip = np.fliplr(center)
 
-    return (top_left, top_left_flip, top_right, tor_right_flip, bottom_left,
+    return (top_left, top_left_flip, top_right, top_right_flip, bottom_left,
             bottom_left_flip, bottom_right, bottom_right_flip, center,
             center_flip)
 
@@ -403,7 +432,7 @@ class Ilsvrc12(Loader):
     # FIXME (danielp): This is a temporary hack for when we don't have enough
     # VRAM to load >=5 training batches.
     combined_dataset = None
-    for _ in range(0, 5):
+    for _ in range(0, 2):
       dataset = self.__load_new_set(patch=self.__current_patch,
                                     load_new=(self.__current_patch == 0),
                                     valid=True)

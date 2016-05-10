@@ -90,8 +90,7 @@ class LeNetClassifier(FeedforwardNetwork):
                first_layer.kernel_height, first_layer.kernel_width]
       self.__weight_shapes.append(shape)
 
-      weights_values = np.asarray(np.random.normal(size=shape),
-                                  dtype=theano.config.floatX)
+      weights_values = utils.initialize_xavier(shape)
       weights = theano.shared(weights_values)
       self.__our_weights.append(weights)
 
@@ -142,8 +141,7 @@ class LeNetClassifier(FeedforwardNetwork):
              next_layer.kernel_width]
     self.__weight_shapes.append(shape)
 
-    weights_values = np.asarray(np.random.normal(size=shape),
-                                dtype=theano.config.floatX)
+    weights_values = utils.initialize_xavier(shape)
     weights = theano.shared(weights_values)
     self._pweights = self._print_op(weights)
     self.__our_weights.append(weights)
@@ -174,7 +172,8 @@ class LeNetClassifier(FeedforwardNetwork):
                                          layer_spec.stride_height),
                               border_mode=layer_spec.border_mode)
         # Activation.
-        bias_values = np.zeros((output_feature_maps,), dtype=theano.config.floatX)
+        bias_values = np.full((output_feature_maps,), layer_spec.start_bias,
+                              dtype=theano.config.floatX)
         bias = theano.shared(bias_values)
         our_biases.append(bias)
         next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
@@ -193,10 +192,11 @@ class LeNetClassifier(FeedforwardNetwork):
                                   ignore_border=True,
                                   st=stride_size)
 
+      self._intermediate_activations.append(next_inputs)
+
     # Reshape convolution outputs so they can be used as inputs to the
     # feedforward network.
-    num_inputs = feedforward_layers[0].size
-    flattened_inputs = TT.reshape(next_inputs, [self._batch_size, num_inputs])
+    flattened_inputs = TT.flatten(next_inputs, 2)
     self._pflat = self._print_op(flattened_inputs)
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.

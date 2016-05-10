@@ -17,6 +17,8 @@ class ConvLayer(object):
     # Border mode for convolution. Currently supports either "valid" or
     # "half".
     self.border_mode = kwargs.get("border_mode", "valid")
+    # Initial value for our bias.
+    self.start_bias = kwargs.get("start_bias", 0)
 
 class PoolLayer(object):
   """ A simple class to handle the specification of maxpooling layers. """
@@ -47,3 +49,5 @@ class InnerProductLayer(object):
     self.size = kwargs.get("size")
     # Whether to use dropout on this layer.
     self.dropout = kwargs.get("dropout", False)
+    # Initial value for our bias.
+    self.start_bias = kwargs.get("start_bias", 0)

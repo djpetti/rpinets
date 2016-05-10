@@ -3,6 +3,8 @@
 import theano
 import theano.tensor as TT
 
+import numpy as np
+
 
 def rmsprop(cost, params, lr, rho, epsilon):
   """ Performs RMS Prop on a set of parameters. This code is sourced from here:
@@ -25,6 +27,27 @@ def rmsprop(cost, params, lr, rho, epsilon):
     updates.append((acc, acc_new))
     updates.append((p, p - lr * g))
   return updates
+
+def momentum_sgd(cost, params, lr, momentum, weight_decay):
+  """ Performs SGD, as described in the AlexNet paper.
+  Args:
+    cost: The symbolic cost function.
+    params: The parameters that we want to update.
+    lr: The learning rate.
+    momentum: Momentum to use.
+    weight_decay: Weight decay to use.
+  Returns:
+    List of symbolic updates for the parameters. """
+  grads = TT.grad(cost=cost, wrt=params)
+  updates = []
+  for p, g in zip(params, grads):
+    v = theano.shared(p.get_value() * 0.)
+    v_next = momentum * v - weight_decay * lr * p - lr * g
+    updates.append((v, v_next))
+
+    updates.append((p, p + v_next))
+
+  return updates, g
 
 def local_response_normalization(data, depth_radius, bias, alpha, beta):
   """ Local response normalization, as described in the AlexNet paper.
@@ -65,3 +88,29 @@ def exponential_decay(learning_rate, global_step, decay_steps, decay_rate):
     An exponentially decayed learning rate. """
   rate = learning_rate * decay_rate ** (global_step / decay_steps)
   return TT.cast(rate, theano.config.floatX)
+
+def initialize_xavier(weight_shape):
+  """ An implementation of xavier initialization, based on code from here:
+  https://github.com/Lasagne/Lasagne/blob/master/lasagne/init.py#L103-L177
+  It works for convolutional and inner product layers. It assumes that all
+  neurons are ReLU-activated, and draws from a normal distribution.
+  Args:
+    weigth_shape: The shape of the weights to initialize.
+  Returns:
+    A new array of weight values. """
+  if len(weight_shape) == 4:
+    # This is a convolutional layer.
+    fan_out, fan_in, rows, cols = weight_shape
+    receptive_field = rows * cols
+  else:
+    # This is an inner product layer.
+    fan_out, fan_in = weight_shape
+    receptive_field = 1
+
+  # Compute the standard deviation.
+  stddev = np.sqrt(2.0 / ((fan_out + fan_in) * receptive_field))
+
+  # Get the weight array.
+  weights = np.asarray(np.random.normal(0, stddev, size=weight_shape),
+                       dtype=theano.config.floatX)
+  return weights
