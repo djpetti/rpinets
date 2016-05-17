@@ -9,7 +9,7 @@ class ConvLayer(object):
     self.kernel_width = kwargs.get("kernel_width")
     # Convolutional kernel height.
     self.kernel_height = kwargs.get("kernel_height")
-    # Number of input feature maps.
+    # Number of output feature maps.
     self.feature_maps = kwargs.get("feature_maps")
     # Stride size for convolution. (Defaults to (1, 1))
     self.stride_width = kwargs.get("stride_width", 1)

@@ -27,8 +27,8 @@ def run_mnist_test():
   rho = 0.9
   epsilon = 1e-6
 
-  conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=1)
-  conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=32)
+  conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=32)
+  conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=128)
   pool = layers.PoolLayer()
   inner_product1 = layers.InnerProductLayer(size=5 * 5 * 128)
   inner_product2 = layers.InnerProductLayer(size=625)
@@ -114,25 +114,25 @@ def run_imagenet_test():
   else:
     # Build new network.
     conv1 = layers.ConvLayer(kernel_width=11, kernel_height=11, stride_width=4,
-                              stride_height=4, feature_maps=3,
-                              border_mode="half")
-    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=96,
-                              border_mode="half", start_bias=1)
-    conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
-                              border_mode="half")
+                             stride_height=4, feature_maps=96,
+                             border_mode="half")
+    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=256,
+                             border_mode="half", start_bias=1)
+    conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
+                             border_mode="half")
     conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
-                              border_mode="half", start_bias=1)
-    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
-                              border_mode="half", start_bias=1)
+                             border_mode="half", start_bias=1)
+    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
+                             border_mode="half", start_bias=1)
     pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
                             stride_height=2)
     flatten = layers.InnerProductLayer(size=6 * 6 * 256, dropout=True,
-                                        start_bias=1)
+                                       start_bias=1)
     inner_product1 = layers.InnerProductLayer(size=4096, dropout=True,
                                               start_bias=1)
     inner_product2 = layers.InnerProductLayer(size=4096)
     norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
-                                      bias=1.0)
+                                     bias=1.0)
     network = AlexNet((224, 224, 3), [conv1, pool, norm, conv2, pool,
                                       norm, conv3, conv4, conv5, pool,
                                       flatten, inner_product1, inner_product2],
@@ -255,7 +255,7 @@ def evaluate_final_alexnet():
 
 def main():
   elapsed, speed = run_imagenet_test()
-  results = {"mnist": {"elapsed": elapsed, "speed": speed}}
+  results = {"imagenet": {"elapsed": elapsed, "speed": speed}}
   print "results=%s" % (json.dumps(results))
 
 if __name__ == "__main__":

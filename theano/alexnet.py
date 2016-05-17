@@ -36,7 +36,7 @@ class AlexNet(LeNetClassifier):
     us the total accuracy. """
     # Run for every translation.
     for i in range(0, 2):
-      self.__softmaxes.append(self._tester(batch_index + i)[0])
+      self.__softmaxes.append(self._tester(batch_index + i))
 
   def test(self, batch_index, expected_outputs):
     """ A special tester that averages the softmax accross multiple
@@ -50,7 +50,7 @@ class AlexNet(LeNetClassifier):
       The accuracy of the network. """
     # Run for every translation.
     for i in range(0, 2):
-      self.__softmaxes.append(self._tester(batch_index + i)[0])
+      self.__softmaxes.append(self._tester(batch_index + i))
 
     # Find the mean distribution.
     softmaxes = np.asarray(self.__softmaxes)

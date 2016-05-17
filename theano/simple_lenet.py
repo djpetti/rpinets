@@ -81,70 +81,19 @@ class LeNetClassifier(FeedforwardNetwork):
       if isinstance(layer, ConvLayer):
         only_convolution.append(layer)
 
-    for i in range(0, len(only_convolution) - 1):
-      first_layer = only_convolution[i]
-      next_layer = only_convolution[i + 1]
+    input_feature_maps = channels
 
+    for layer in only_convolution:
       # Initialize weights randomly.
-      shape = [next_layer.feature_maps, first_layer.feature_maps,
-               first_layer.kernel_height, first_layer.kernel_width]
+      shape = [layer.feature_maps, input_feature_maps, layer.kernel_height,
+               layer.kernel_width]
       self.__weight_shapes.append(shape)
 
       weights_values = utils.initialize_xavier(shape)
       weights = theano.shared(weights_values)
       self.__our_weights.append(weights)
 
-    # The shapes of our convolution outputs will not be the same as those of our
-    # inputs, which complicates things somewhat.
-    output_shape = (image_x, image_y)
-    # Calculate shape of output.
-    for layer in conv_layers:
-      out_shape_x, out_shape_y = output_shape
-
-      if isinstance(layer, ConvLayer):
-        if layer.border_mode == "valid":
-          out_shape_x -= layer.kernel_width
-          out_shape_x += 1
-          out_shape_y -= layer.kernel_height
-          out_shape_y += 1
-        elif layer.border_mode == "half":
-          out_shape_x = output_shape[0] + (layer.kernel_width // 2) * 2
-          out_shape_y = output_shape[1] + (layer.kernel_height // 2) * 2
-          out_shape_x -= layer.kernel_width
-          out_shape_x += 1
-          out_shape_y -= layer.kernel_height
-          out_shape_y += 1
-        else:
-          raise ValueError("Invalid border mode '%s'." % (layer.border_mode))
-
-        out_shape_x /= layer.stride_width
-        out_shape_y /= layer.stride_height
-
-      elif isinstance(layer, PoolLayer):
-        # Factor in maxpooling.
-        if layer.kernel_width > layer.stride_width:
-          # The size of our patch impacts where we actually start, since we ignore
-          # the borders.
-          out_shape_x -= (layer.kernel_width // 2) * 2
-        if layer.kernel_height > layer.stride_height:
-          out_shape_y -= (layer.kernel_height // 2) * 2
-        out_shape_x = (out_shape_x - 1) / layer.stride_width + 1
-        out_shape_y = (out_shape_y - 1) / layer.stride_height + 1
-
-      output_shape = (out_shape_x, out_shape_y)
-
-    # Add last convolutional layer weights.
-    final_x, final_y = output_shape
-    shape = [feedforward_inputs / final_x / final_y,
-             next_layer.feature_maps,
-             next_layer.kernel_height,
-             next_layer.kernel_width]
-    self.__weight_shapes.append(shape)
-
-    weights_values = utils.initialize_xavier(shape)
-    weights = theano.shared(weights_values)
-    self._pweights = self._print_op(weights)
-    self.__our_weights.append(weights)
+      input_feature_maps = layer.feature_maps
 
   def __add_layers(self, conv_layers, feedforward_layers, outputs):
     """ Adds as many convolutional layers to our model as there are elements in
