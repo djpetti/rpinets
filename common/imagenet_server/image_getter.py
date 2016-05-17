@@ -7,6 +7,7 @@ import urllib2
 
 import cv2
 
+from randomset import RandomSet
 import cache
 import data_augmentation
 import downloader
@@ -346,7 +347,7 @@ class _Dataset(object):
       contain tuples with each image's WNID and URL.
       disk_cache: The disk cache where we can store downloaded images.
       batch_size: The size of each batch from this dataset. """
-    self.__images = dict(zip(range(0, len(images) - 1), images))
+    self.__images = RandomSet(images)
     self._cache = disk_cache
 
     self._batch_size = batch_size
@@ -358,15 +359,14 @@ class _Dataset(object):
     Returns:
       wnid and url, and key of the image in the images map. """
     # Pick a random image.
-    key = random.randint(0, len(self.__images) - 1)
-    wnid, url = self.__images[key]
+    wnid, url = self.__images.get_random()
 
     if wnid in self.__already_picked:
       # This is a duplicate, pick another.
       return self.__pick_random_image()
     self.__already_picked.add(wnid)
 
-    return wnid, url, key
+    return wnid, url
 
   def get_random_batch(self):
     """ Loads a random batch of images from the whole dataset.
@@ -381,10 +381,8 @@ class _Dataset(object):
     self.__already_picked = set([])
 
     # Try to download initial images.
-    loading = {}
     for _ in range(0, self._batch_size):
-      wnid, key = self.__load_random_image()
-      loading[wnid] = key
+      self.__load_random_image()
 
     # Wait for all the downloads to complete, replacing any ones that fail.
     to_remove = []
@@ -395,17 +393,16 @@ class _Dataset(object):
 
       # Remove failed images.
       for synset, name, url in failures:
-        # Load a new image to replace it.
-        wnid, key = self.__load_random_image()
-        loading[wnid] = key
-
         # Remove failed image.
         wnid = "%s_%s" % (synset, name)
-        logger.info("Removing bad image %s." % (wnid))
-        self.__images.pop(loading[wnid])
-        loading.pop(wnid)
 
+        logger.info("Removing bad image %s." % (wnid))
+
+        self.__images.remove((wnid, url))
         to_remove.append((wnid, url))
+
+        # Load a new image to replace it.
+        self.__load_random_image()
 
       if not self._download_manager.update():
         break
@@ -417,10 +414,8 @@ class _Dataset(object):
   def __load_random_image(self):
     """ Loads a random image from either the cache or the internet. If loading
     from the internet, it adds it to the download manager, otherwise, it adds
-    them to the memory buffer.
-    Returns:
-      The WNID and key of the loaded image. """
-    wnid, url, key = self.__pick_random_image()
+    them to the memory buffer. """
+    wnid, url = self.__pick_random_image()
     synset, number = wnid.split("_")
 
     image = self.__get_cached_image(synset, number)
@@ -429,8 +424,6 @@ class _Dataset(object):
       self._download_manager.download_new(synset, number, url)
     else:
       self._mem_buffer.add(image, number, synset)
-
-    return wnid, key
 
   def __get_cached_image(self, synset, image_number):
     """ Checks if an image is in the cache, and returns it.
