@@ -74,6 +74,24 @@ class FeedforwardNetwork(object):
 
     self._intermediate_activations = []
 
+  def _make_initial_weights(self, weight_shape, layer):
+    """ A helper function that generates random starting values for the weights.
+    Args:
+      weight_shape: The shape of the weights tensor.
+      layer: The layer the weights are for.
+    Returns:
+      A shared variable containing the weights. """
+    if layer.weight_init == "xavier":
+      # Use xavier initialization.
+      weight_values = utils.initialize_xavier(weight_shape)
+    elif layer.weight_init == "gaussian":
+      # Use gaussian initialization.
+      dist = np.random.normal(layer.weight_mean, layer.weight_stddev,
+                              size=weight_shape)
+      weight_values = np.asarray(dist, dtype=theano.config.floatX)
+
+    return theano.shared(weight_values)
+
   def __initialize_weights(self, layers, outputs):
     """ Initializes tensors containing the weights and biases for each layer.
     Args:
@@ -90,10 +108,7 @@ class FeedforwardNetwork(object):
       fan_out = layers[i + 1].size
 
       # Initialize weights randomly.
-      weights_values = np.asarray(np.random.normal(0, 0.005,
-                                                   size=(fan_in, fan_out)),
-                                  dtype=theano.config.floatX)
-      weights = theano.shared(weights_values)
+      weights = self._make_initial_weights((fan_in, fan_out), layers[i])
       self.__our_weights.append(weights)
       self.__weight_shapes.append((fan_in, fan_out))
 
@@ -104,10 +119,8 @@ class FeedforwardNetwork(object):
       self.__our_biases.append(bias)
 
     # Include outputs also.
-    weights_values = np.asarray(np.random.normal(0, 0.01,
-                                                 size=(fan_out, outputs)),
-                                dtype=theano.config.floatX)
-    self.__our_weights.append(theano.shared(weights_values))
+    weights = self._make_initial_weights((fan_out, outputs), layers[i])
+    self.__our_weights.append(weights)
     bias_values = np.full((outputs,), layers[i].start_bias,
                           dtype=theano.config.floatX)
     self.__our_biases.append(theano.shared(bias_values))

@@ -91,8 +91,7 @@ class LeNetClassifier(FeedforwardNetwork):
                layer.kernel_width]
       self.__weight_shapes.append(shape)
 
-      weights_values = utils.initialize_xavier(shape)
-      weights = theano.shared(weights_values)
+      weights = self._make_initial_weights(shape, layer)
       self.__our_weights.append(weights)
 
       # Initialize biases.

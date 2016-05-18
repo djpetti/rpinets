@@ -30,8 +30,12 @@ def run_mnist_test():
   conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=32)
   conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=128)
   pool = layers.PoolLayer()
-  inner_product1 = layers.InnerProductLayer(size=5 * 5 * 128)
-  inner_product2 = layers.InnerProductLayer(size=625)
+  inner_product1 = layers.InnerProductLayer(size=5 * 5 * 128,
+                                            weight_init="gaussian",
+                                            weight_stddev=0.005)
+  inner_product2 = layers.InnerProductLayer(size=625,
+                                            weight_init="gaussian",
+                                            weight_stddev=0.005)
   network = LeNetClassifier((28, 28, 1), [conv1, pool, conv2, pool,
                                           inner_product1, inner_product2],
                             10, train, test, batch_size)
@@ -128,10 +132,14 @@ def run_imagenet_test():
     pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
                             stride_height=2)
     flatten = layers.InnerProductLayer(size=6 * 6 * 256, dropout=True,
-                                       start_bias=1)
+                                       start_bias=1, weight_init="gaussian",
+                                       weight_stddev=0.005)
     inner_product1 = layers.InnerProductLayer(size=4096, dropout=True,
-                                              start_bias=1)
-    inner_product2 = layers.InnerProductLayer(size=4096)
+                                              start_bias=1,
+                                              weight_init="gaussian",
+                                              weight_stddev=0.005)
+    inner_product2 = layers.InnerProductLayer(size=4096, weight_init="gaussian",
+                                              weight_stddev=0.005)
     norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
                                      bias=1.0)
     network = AlexNet((224, 224, 3), [conv1, pool, norm, conv2, pool,
