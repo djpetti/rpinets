@@ -22,7 +22,7 @@ MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 MEAN_FILE = "mean.txt"
 
-ILSVRC12_LOCATION = "/home/daniel/datasets/ilsvrc12"
+ILSVRC12_LOCATION = "common/datasets/ilsvrc12"
 VAL_SYNSETS_FILE = os.path.join(ILSVRC12_LOCATION, "val_synsets.json")
 
 

@@ -1,15 +1,29 @@
 """ Contains simple classes for representing layers. """
 
+class _WeightLayer(object):
+  """ Superclass shared by layers that have weights and biases. """
 
-class ConvLayer(object):
+  def __init__(self, *args, **kwargs):
+    # Initial value for our bias.
+    self.start_bias = kwargs.get("start_bias", 0)
+    # Method for initializing weights. The options are 'xavier' and 'gaussian'.
+    self.weight_init = kwargs.get("weight_init", "xavier")
+    # If weight_init is set to gaussian, these parameters control the
+    # distribution's mean and standard deviation.
+    self.weight_mean = kwargs.get("weight_mean", 0)
+    self.weight_stddev = kwargs.get("weight_stddev", 1)
+
+class ConvLayer(_WeightLayer):
   """ A simple class to handle the specification of convolutional layers. """
 
   def __init__(self, *args, **kwargs):
+    super(ConvLayer, self).__init__(*args, **kwargs)
+
     # Convolutional kernel width.
     self.kernel_width = kwargs.get("kernel_width")
     # Convolutional kernel height.
     self.kernel_height = kwargs.get("kernel_height")
-    # Number of input feature maps.
+    # Number of output feature maps.
     self.feature_maps = kwargs.get("feature_maps")
     # Stride size for convolution. (Defaults to (1, 1))
     self.stride_width = kwargs.get("stride_width", 1)
@@ -41,10 +55,12 @@ class NormalizationLayer(object):
     self.beta = kwargs.get("beta", 0.5)
     self.bias = kwargs.get("bias", 1.0)
 
-class InnerProductLayer(object):
+class InnerProductLayer(_WeightLayer):
   """ Basic inner product layer. """
 
   def __init__(self, *args, **kwargs):
+    super(InnerProductLayer, self).__init__(*args, **kwargs)
+
     # Number of neurons in the layer.
     self.size = kwargs.get("size")
     # Whether to use dropout on this layer.

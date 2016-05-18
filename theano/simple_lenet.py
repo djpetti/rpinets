@@ -64,7 +64,8 @@ class LeNetClassifier(FeedforwardNetwork):
     return conv, feedforward
 
   def __initialize_weights(self, image_size, conv_layers, feedforward_inputs):
-    """ Initializes tensors containing the weights for each convolutional layer.
+    """ Initializes tensors containing the weights and biases for each
+    convolutional layer.
     Args:
       image_size: The size of the input image.
       conv_layers: A list of ConvLayer, PoolLayer and NormalizationLayer
@@ -73,6 +74,7 @@ class LeNetClassifier(FeedforwardNetwork):
     image_x, image_y, channels = image_size
 
     self.__our_weights = []
+    self.__our_biases = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
     # Extract only convolutional layers.
@@ -81,71 +83,24 @@ class LeNetClassifier(FeedforwardNetwork):
       if isinstance(layer, ConvLayer):
         only_convolution.append(layer)
 
-    for i in range(0, len(only_convolution) - 1):
-      first_layer = only_convolution[i]
-      next_layer = only_convolution[i + 1]
+    input_feature_maps = channels
 
+    for layer in only_convolution:
       # Initialize weights randomly.
-      shape = [next_layer.feature_maps, first_layer.feature_maps,
-               first_layer.kernel_height, first_layer.kernel_width]
+      shape = [layer.feature_maps, input_feature_maps, layer.kernel_height,
+               layer.kernel_width]
       self.__weight_shapes.append(shape)
 
-      weights_values = utils.initialize_xavier(shape)
-      weights = theano.shared(weights_values)
+      weights = self._make_initial_weights(shape, layer)
       self.__our_weights.append(weights)
 
-    # The shapes of our convolution outputs will not be the same as those of our
-    # inputs, which complicates things somewhat.
-    output_shape = (image_x, image_y)
-    # Calculate shape of output.
-    for layer in conv_layers:
-      out_shape_x, out_shape_y = output_shape
+      # Initialize biases.
+      bias_values = np.full((layer.feature_maps,), layer.start_bias,
+                             dtype=theano.config.floatX)
+      bias = theano.shared(bias_values)
+      self.__our_biases.append(bias)
 
-      if isinstance(layer, ConvLayer):
-        if layer.border_mode == "valid":
-          out_shape_x -= layer.kernel_width
-          out_shape_x += 1
-          out_shape_y -= layer.kernel_height
-          out_shape_y += 1
-        elif layer.border_mode == "half":
-          out_shape_x = output_shape[0] + (layer.kernel_width // 2) * 2
-          out_shape_y = output_shape[1] + (layer.kernel_height // 2) * 2
-          out_shape_x -= layer.kernel_width
-          out_shape_x += 1
-          out_shape_y -= layer.kernel_height
-          out_shape_y += 1
-        else:
-          raise ValueError("Invalid border mode '%s'." % (layer.border_mode))
-
-        out_shape_x /= layer.stride_width
-        out_shape_y /= layer.stride_height
-
-      elif isinstance(layer, PoolLayer):
-        # Factor in maxpooling.
-        if layer.kernel_width > layer.stride_width:
-          # The size of our patch impacts where we actually start, since we ignore
-          # the borders.
-          out_shape_x -= (layer.kernel_width // 2) * 2
-        if layer.kernel_height > layer.stride_height:
-          out_shape_y -= (layer.kernel_height // 2) * 2
-        out_shape_x = (out_shape_x - 1) / layer.stride_width + 1
-        out_shape_y = (out_shape_y - 1) / layer.stride_height + 1
-
-      output_shape = (out_shape_x, out_shape_y)
-      print output_shape
-
-    # Add last convolutional layer weights.
-    final_x, final_y = output_shape
-    shape = [feedforward_inputs / final_x / final_y,
-             next_layer.feature_maps,
-             next_layer.kernel_height,
-             next_layer.kernel_width]
-    self.__weight_shapes.append(shape)
-
-    weights_values = utils.initialize_xavier(shape)
-    weights = theano.shared(weights_values)
-    self._pweights = self._print_op(weights)
-    self.__our_weights.append(weights)
+      input_feature_maps = layer.feature_maps
 
   def __add_layers(self, conv_layers, feedforward_layers, outputs):
     """ Adds as many convolutional layers to our model as there are elements in
@@ -156,7 +111,6 @@ class LeNetClassifier(FeedforwardNetwork):
       feedforward_layers: A list denoting the number of inputs for each
       feedforward layer.
       outputs: The number of outputs of the network. """
-    our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = self._inputs
@@ -166,18 +120,16 @@ class LeNetClassifier(FeedforwardNetwork):
         # Convolution.
         weights = self.__our_weights[weight_index]
         output_feature_maps, _, _, _ = self.__weight_shapes[weight_index]
-        weight_index += 1
 
         conv = TT.nnet.conv2d(next_inputs, weights,
                               subsample=(layer_spec.stride_width,
                                          layer_spec.stride_height),
                               border_mode=layer_spec.border_mode)
         # Activation.
-        bias_values = np.full((output_feature_maps,), layer_spec.start_bias,
-                              dtype=theano.config.floatX)
-        bias = theano.shared(bias_values)
-        our_biases.append(bias)
+        bias = self.__our_biases[weight_index]
         next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
+
+        weight_index += 1
 
       elif isinstance(layer_spec, NormalizationLayer):
         # Local normalization.
@@ -193,15 +145,15 @@ class LeNetClassifier(FeedforwardNetwork):
                                   ignore_border=True,
                                   st=stride_size)
 
+      self._intermediate_activations.append(next_inputs)
+
     # Reshape convolution outputs so they can be used as inputs to the
     # feedforward network.
-    num_inputs = feedforward_layers[0].size
-    flattened_inputs = TT.reshape(next_inputs, [self._batch_size, num_inputs])
-    self._pflat = self._print_op(flattened_inputs)
+    flattened_inputs = TT.flatten(next_inputs, 2)
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
-    self._biases.extend(our_biases)
+    self._biases.extend(self.__our_biases)
     # Build the fully-connected part of the network.
     self._extend_with_feedforward(flattened_inputs, feedforward_layers, outputs)
 

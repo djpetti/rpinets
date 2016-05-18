@@ -27,11 +27,15 @@ def run_mnist_test():
   rho = 0.9
   epsilon = 1e-6
 
-  conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=1)
-  conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=32)
+  conv1 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=32)
+  conv2 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=128)
   pool = layers.PoolLayer()
-  inner_product1 = layers.InnerProductLayer(size=5 * 5 * 128)
-  inner_product2 = layers.InnerProductLayer(size=625)
+  inner_product1 = layers.InnerProductLayer(size=5 * 5 * 128,
+                                            weight_init="gaussian",
+                                            weight_stddev=0.005)
+  inner_product2 = layers.InnerProductLayer(size=625,
+                                            weight_init="gaussian",
+                                            weight_stddev=0.005)
   network = LeNetClassifier((28, 28, 1), [conv1, pool, conv2, pool,
                                           inner_product1, inner_product2],
                             10, train, test, batch_size)
@@ -55,9 +59,10 @@ def run_mnist_test():
 
       test_batch_index += 1
 
-    cost = network.train(train_batch_index)[0]
+    cost, rate, step = network.train(train_batch_index)
     if iterations % 100 == 0:
-      print "Training cost: %f" % (cost)
+      print "Training cost: %f, learning rate: %f, step: %d" % \
+            (cost, rate, step)
 
     iterations += 1
     train_batch_index += 1
@@ -85,7 +90,7 @@ def run_imagenet_test():
   load_batches = 1
 
   # Learning rate hyperparameters.
-  learning_rate = 0.001
+  learning_rate = 0.01
   decay_steps = 10000
   decay_rate = 1
   momentum = 0.9
@@ -113,30 +118,7 @@ def run_imagenet_test():
 
   else:
     # Build new network.
-    conv1 = layers.ConvLayer(kernel_width=11, kernel_height=11, stride_width=4,
-                             stride_height=4, feature_maps=3,
-                             border_mode="half")
-    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=96,
-                             border_mode="half", start_bias=1)
-    conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
-                             border_mode="half")
-    conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
-                             border_mode="half", start_bias=1)
-    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
-                             border_mode="half", start_bias=1)
-    pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
-                            stride_height=2)
-    flatten = layers.InnerProductLayer(size=6 * 6 * 256, dropout=True,
-                                       start_bias=1)
-    inner_product1 = layers.InnerProductLayer(size=4096, dropout=True,
-                                              start_bias=1)
-    inner_product2 = layers.InnerProductLayer(size=4096)
-    norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
-                                     bias=1.0)
-    network = AlexNet((224, 224, 3), [conv1, pool, norm, conv2, pool,
-                                      norm, conv3, conv4, conv5, pool,
-                                      flatten, inner_product1, inner_product2],
-                      1000, train, test, batch_size)
+    network = AlexNet(train, test, batch_size)
 
     network.use_sgd_trainer(learning_rate, momentum=momentum,
                             weight_decay=weight_decay,
@@ -176,8 +158,9 @@ def run_imagenet_test():
 
       test_batch_index += 1
 
-    cost = network.train(train_batch_index)[0]
-    print "Training cost: %f" % (cost)
+    cost, rate, step = network.train(train_batch_index)
+    print "Training cost: %f, learning rate: %f, step: %d" % \
+            (cost, rate, step)
 
     if iterations % 50 == 0:
       print "Saving network..."
@@ -203,11 +186,60 @@ def run_imagenet_test():
   print("Theano: Imagenet test completed in %f seconds." % (elapsed))
   return (elapsed, speed)
 
+def evaluate_final_alexnet():
+  """ Quick way to evaluate AlexNet performance once it's done training. """
+  # Where we save the network.
+  save_file = "alexnet.pkl"
+  synsets_save_file = "synsets.pkl"
+
+  batch_size = 128
+  load_batches = 1
+
+  data = data_loader.Ilsvrc12(batch_size, load_batches, use_4d=True)
+  data.load(synsets_save_file)
+
+  test = data.get_test_set()
+  train = data.get_train_set()
+  _, cpu_labels = data.get_non_shared_test_set()
+
+  # Load from the file.
+  print "Theano: Loading network from file..."
+  network = AlexNet.load(save_file, train, test, batch_size)
+  print "Done."
+
+  # Test on a fairly large sample.
+  total_one = 0
+  total_five = 0
+  test_batch_index = 0
+  for _ in range(0, 10):
+    # FIXME (danielp): Another hack for dealing with VRAM storage. We test in
+    # five parts, with each set of batches loaded individually.
+    for _ in range(0, 4):
+      if not test:
+        # Test data is not loaded.
+        test = data.get_test_set()
+        _, cpu_labels = data.get_non_shared_test_set()
+      network.test_part(test_batch_index, cpu_labels)
+      test = None
+    test = data.get_test_set()
+    _, cpu_labels = data.get_non_shared_test_set()
+    top_one, top_five = network.test(test_batch_index, cpu_labels)
+    test = None
+    print "Theano: testing top 1: %f, testing top 5: %f" % \
+          (top_one, top_five)
+
+    total_one += top_one
+    total_five += top_five
+
+  average_one = total_one / 10.0
+  average_five = total_five / 10.0
+  print "Theano: Mean top 1: %f, mean top 5: %f" % \
+        (average_one, average_five)
+
 def main():
   elapsed, speed = run_imagenet_test()
-  results = {"mnist": {"elapsed": elapsed, "speed": speed}}
+  results = {"imagenet": {"elapsed": elapsed, "speed": speed}}
   print "results=%s" % (json.dumps(results))
-
 
 if __name__ == "__main__":
   main()

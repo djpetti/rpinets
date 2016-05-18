@@ -34,16 +34,16 @@ class FeedforwardNetwork(object):
     """ Gets the state for pickling. """
     state = (self._weights, self._biases, self._layer_stack, self._cost,
              self._inputs, self._expected_outputs, self.__trainer_type,
-             self.__train_params, self._global_step, self._print_op, self._srng,
-             self._training, self._used_training, self.__p_logits)
+             self.__train_params, self._global_step, self._srng,
+             self._training, self._used_training, self._intermediate_activations)
     return state
 
   def __setstate__(self, state):
     """ Sets the state for unpickling. """
     self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
     self._expected_outputs, self.__trainer_type, self.__train_params, \
-    self._global_step, self._print_op, self._srng, self._training, \
-    self._used_training, self.__p_logits = state
+    self._global_step, self._srng, self._training, \
+    self._used_training, self._intermediate_activations = state
 
   def _initialize_variables(self, train, test, batch_size):
     """ Initializes variables that are common to all subclasses.
@@ -64,23 +64,44 @@ class FeedforwardNetwork(object):
     self.__trainer_type = None
     self.__train_params = ()
     # A global step to use for learning rate decays.
-    value = np.asarray(0).astype(theano.config.floatX)
-    self._global_step = theano.shared(value)
-
-    self._print_op = theano.printing.Print("Debug: ")
+    self._global_step = theano.shared(0)
 
     self._srng = TT.shared_randomstreams.RandomStreams()
     self._training = TT.lscalar("training")
     # Keeps track of whether _training actually gets used, because Theano is
     # annoying about initializing unused variables.
     self._used_training = False
+<<<<<<< HEAD
+=======
+
+    self._intermediate_activations = []
+
+  def _make_initial_weights(self, weight_shape, layer):
+    """ A helper function that generates random starting values for the weights.
+    Args:
+      weight_shape: The shape of the weights tensor.
+      layer: The layer the weights are for.
+    Returns:
+      A shared variable containing the weights. """
+    if layer.weight_init == "xavier":
+      # Use xavier initialization.
+      weight_values = utils.initialize_xavier(weight_shape)
+    elif layer.weight_init == "gaussian":
+      # Use gaussian initialization.
+      dist = np.random.normal(layer.weight_mean, layer.weight_stddev,
+                              size=weight_shape)
+      weight_values = np.asarray(dist, dtype=theano.config.floatX)
+
+    return theano.shared(weight_values)
+>>>>>>> theano
 
   def __initialize_weights(self, layers, outputs):
-    """ Initializes tensors containing the weights for each layer.
+    """ Initializes tensors containing the weights and biases for each layer.
     Args:
       layers: A list denoting the number of inputs of each layer.
       outputs: The number of outputs of the network. """
     self.__our_weights = []
+    self.__our_biases = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
     # This is in case we have a single hidden layer.
@@ -90,18 +111,23 @@ class FeedforwardNetwork(object):
       fan_out = layers[i + 1].size
 
       # Initialize weights randomly.
-      weights_values = np.asarray(np.random.normal(0, 0.005,
-                                                   size=(fan_in, fan_out)),
-                                  dtype=theano.config.floatX)
-      weights = theano.shared(weights_values)
+      weights = self._make_initial_weights((fan_in, fan_out), layers[i])
       self.__our_weights.append(weights)
       self.__weight_shapes.append((fan_in, fan_out))
 
+      # Initialize biases.
+      bias_values = np.full((fan_out,), layers[i].start_bias,
+                            dtype=theano.config.floatX)
+      bias = theano.shared(bias_values)
+      self.__our_biases.append(bias)
+
     # Include outputs also.
-    weights_values = np.asarray(np.random.normal(0, 0.01,
-                                                 size=(fan_out, outputs)),
-                                dtype=theano.config.floatX)
-    self.__our_weights.append(theano.shared(weights_values))
+    weights = self._make_initial_weights((fan_out, outputs), layers[i])
+    self.__our_weights.append(weights)
+    bias_values = np.full((outputs,), layers[i].start_bias,
+                          dtype=theano.config.floatX)
+    self.__our_biases.append(theano.shared(bias_values))
+
     self.__weight_shapes.append((fan_out, outputs))
 
   def __add_layers(self, first_inputs, layers):
@@ -110,7 +136,6 @@ class FeedforwardNetwork(object):
     Args:
       first_inputs: The tensor to use as inputs to the first hidden layer.
       layers: The list of all the layers in this network. """
-    our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = first_inputs
@@ -118,11 +143,8 @@ class FeedforwardNetwork(object):
       weights = self.__our_weights[i]
       _, fan_out = self.__weight_shapes[i]
       layer = layers[i]
+      bias = self.__our_biases[i]
 
-      bias_values = np.full((fan_out,), layer.start_bias,
-                            dtype=theano.config.floatX)
-      bias = theano.shared(bias_values)
-      our_biases.append(bias)
       sums = TT.dot(next_inputs, weights) + bias
       if i < len(self.__our_weights) - 1:
         next_inputs = TT.nnet.relu(sums)
@@ -138,11 +160,13 @@ class FeedforwardNetwork(object):
         next_inputs = theano.ifelse.ifelse(self._training, dropped_out,
                                            next_inputs * 0.5)
 
+      self._intermediate_activations.append(next_inputs)
+
     self._layer_stack = next_inputs
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
-    self._biases.extend(our_biases)
+    self._biases.extend(self.__our_biases)
 
   def __build_model(self, layers, outputs):
     """ Actually constructs the graph for this model.
@@ -209,17 +233,15 @@ class FeedforwardNetwork(object):
     # Tell it how to update the parameters.
     updates, grads = utils.momentum_sgd(cost, params, learning_rate, momentum,
                                         weight_decay)
-    p_grads = self._print_op(grads)
     # Update the global step too.
-    increment = theano.shared(np.asarray(1.0).astype(theano.config.floatX))
-    updates.append((self._global_step, self._global_step + increment))
+    updates.append((self._global_step, self._global_step + 1))
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, self._print_lr,
-    self.__p_logits],
+    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
+                                                       self._global_step],
                               updates=updates,
                               givens=givens)
     return trainer
@@ -241,14 +263,14 @@ class FeedforwardNetwork(object):
 
     updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
     # Update the global step too.
-    increment = theano.shared(np.asarray(1.0).astype(theano.config.floatX))
-    updates.append((self._global_step, self._global_step + increment))
+    updates.append((self._global_step, self._global_step + 1))
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, self._print_lr],
+    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
+                                                       self._global_step],
                               updates=updates,
                               givens=givens)
     return trainer
@@ -339,7 +361,6 @@ class FeedforwardNetwork(object):
     decayed_learning_rate = \
         utils.exponential_decay(learning_rate, self._global_step, decay_steps,
                                 decay_rate)
-    self._print_lr = self._print_op(decayed_learning_rate)
 
     self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
                                               momentum, weight_decay,
@@ -363,7 +384,6 @@ class FeedforwardNetwork(object):
     decayed_learning_rate = \
         utils.exponential_decay(learning_rate, self._global_step, decay_steps,
                                 decay_rate)
-    self._print_lr = self._print_op(decayed_learning_rate)
 
     self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
                                                   rho, epsilon, self._train_x,
@@ -407,8 +427,10 @@ class FeedforwardNetwork(object):
     """ Loads the network from a file.
     Args:
       filename: The name of the file to load from.
-      train: The training dataset to use.
-      test: The testing dataset to use.
+      train: The training dataset to use. If this is None, it won't build a
+      training function.
+      test: The testing dataset to use. If this is None, it won't build
+      predictor and tester functions.
       batch_size: The batch size to use.
       learning_rate: Allows us to specify a new learning rate for the network.
     Returns:
@@ -417,30 +439,44 @@ class FeedforwardNetwork(object):
     network = pickle.load(file_object)
     file_object.close()
 
-    # Set datasets.
-    network._train_x, network._train_y = train
-    network._test_x, network._test_y = test
     network._batch_size = batch_size
 
-    # Build predictor.
-    network._prediction_operation = network._build_predictor(network._test_x,
-                                                             network._batch_size)
-    # Build tester.
-    network._tester = network._build_tester(network._test_x, network._test_y,
-                                            network._batch_size)
+    # If they didn't give us a test dataset, just don't build these functions.
+    if test:
+      # Set datasets.
+      network._test_x, network._test_y = test
 
-    # Reconstruct the specified trainer.
-    builder = None
-    if network.__trainer_type == "rmsprop":
-      builder = network.use_rmsprop_trainer
-    if network.__trainer_type == "sgd":
-      builder = network.use_sgd_trainer
+      # Build predictor.
+      network._prediction_operation = \
+          network._build_predictor(network._test_x, network._batch_size)
+      # Build tester.
+      network._tester = network._build_tester(network._test_x, network._test_y,
+                                              network._batch_size)
 
-    if builder:
-      params = list(network.__train_params)
-      if learning_rate != None:
-        # Use custom learning rate.
-        params[0] = learning_rate
-      builder(*params)
+    if train:
+      # Set datasets.
+      network._train_x, network._train_y = train
+
+      # Reconstruct the specified trainer.
+      builder = None
+      if network.__trainer_type == "rmsprop":
+        builder = network.use_rmsprop_trainer
+      if network.__trainer_type == "sgd":
+        builder = network.use_sgd_trainer
+
+      if builder:
+        params = list(network.__train_params)
+        if learning_rate != None:
+          # Use custom learning rate.
+          params[0] = learning_rate
+        builder(*params)
 
     return network
+
+  def get_train_x(self):
+    """ Returns: The input training image buffer. """
+    return self._train_x
+
+  def get_test_x(self):
+    """ Returns: The input testing image buffer. """
+    return self._test_x
