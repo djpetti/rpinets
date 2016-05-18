@@ -71,8 +71,6 @@ class FeedforwardNetwork(object):
     # Keeps track of whether _training actually gets used, because Theano is
     # annoying about initializing unused variables.
     self._used_training = False
-<<<<<<< HEAD
-=======
 
     self._intermediate_activations = []
 
@@ -93,7 +91,6 @@ class FeedforwardNetwork(object):
       weight_values = np.asarray(dist, dtype=theano.config.floatX)
 
     return theano.shared(weight_values)
->>>>>>> theano
 
   def __initialize_weights(self, layers, outputs):
     """ Initializes tensors containing the weights and biases for each layer.
@@ -328,7 +325,6 @@ class FeedforwardNetwork(object):
     Returns:
       Symbolic op for the cross-entropy opertaion.
     """
-    self.__p_logits = self._print_op(logits)
     softmax = TT.nnet.softmax(logits)
     cross = TT.nnet.categorical_crossentropy(softmax, labels)
 

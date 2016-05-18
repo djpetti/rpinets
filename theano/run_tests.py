@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import json
+import logging
 import os
 import time
 
@@ -103,12 +104,12 @@ def run_imagenet_test():
   save_file = "alexnet.pkl"
   synsets_save_file = "synsets.pkl"
 
-  data = data_loader.Ilsvrc12(batch_size, load_batches, use_4d=True)
+  data = data_loader.Ilsvrc12(batch_size, load_batches)
   if os.path.exists(synsets_save_file):
     data.load(synsets_save_file)
   train = data.get_train_set()
   test = data.get_test_set()
-  _, cpu_labels = data.get_non_shared_test_set()
+  cpu_labels = data.get_non_shared_test_set()
 
   if os.path.exists(save_file):
     # Load from the file.
@@ -141,16 +142,18 @@ def run_imagenet_test():
     if iterations % 50 == 0:
       # FIXME (danielp): Another hack for dealing with VRAM storage. We test in
       # five parts, with each set of batches loaded individually.
-      for _ in range(0, 4):
-        if not test:
-          # Test data is not loaded.
-          test = data.get_test_set()
-          _, cpu_labels = data.get_non_shared_test_set()
+      if not test:
+        # Load new test data.
+        test = data.get_test_set()
+      complete_test = test[0].get_value()
+      cpu_labels = data.get_non_shared_test_set()
+
+      for i in range(0, 4):
         print cpu_labels
+        test[0].set_value(complete_test[(i * batch_size * 2): \
+                                     ((i + 1) * batch_size * 2)])
         network.test_part(test_batch_index, cpu_labels)
-        test = None
-      test = data.get_test_set()
-      _, cpu_labels = data.get_non_shared_test_set()
+      test[0].set_value(complete_test[(4 * batch_size * 2):(5 * batch_size * 2)])
       top_one, top_five = network.test(test_batch_index, cpu_labels)
       test = None
       print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
@@ -237,6 +240,20 @@ def evaluate_final_alexnet():
         (average_one, average_five)
 
 def main():
+  # Configure root logger.
+  root = logging.getLogger()
+  root.setLevel(logging.DEBUG)
+  file_handler = logging.FileHandler("run_tests.log")
+  file_handler.setLevel(logging.DEBUG)
+  stream_handler = logging.StreamHandler()
+  stream_handler.setLevel(logging.WARNING)
+  formatter = logging.Formatter("%(name)s@%(asctime)s: " +
+      "[%(levelname)s] %(message)s")
+  file_handler.setFormatter(formatter)
+  stream_handler.setFormatter(formatter)
+  root.addHandler(file_handler)
+  root.addHandler(stream_handler)
+
   elapsed, speed = run_imagenet_test()
   results = {"imagenet": {"elapsed": elapsed, "speed": speed}}
   print "results=%s" % (json.dumps(results))

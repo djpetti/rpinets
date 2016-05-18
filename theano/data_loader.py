@@ -4,9 +4,11 @@
 import cPickle as pickle
 import gzip
 import json
+import logging
 import os
 import random
 import urllib2
+import threading
 
 import cv2
 
@@ -15,15 +17,17 @@ import numpy as np
 import theano
 import theano.tensor as TT
 
-from common.imagenet_server import cache
+from common.imagenet_server import cache, image_getter
 
 
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 MEAN_FILE = "mean.txt"
 
-ILSVRC12_LOCATION = "common/datasets/ilsvrc12"
-VAL_SYNSETS_FILE = os.path.join(ILSVRC12_LOCATION, "val_synsets.json")
+ILSVRC12_URLS = "../common/imagenet_server/ilsvrc12_urls.txt"
+
+
+logger = logging.getLogger(__name__)
 
 
 class Loader(object):
@@ -54,6 +58,7 @@ class Loader(object):
       Symbolic shared variable containing the dataset.
     """
     data_x, data_y = data
+    data_y = np.asarray(data_y)
     if shared_set == [None, None]:
       # The shared variables weren't initialized yet.
       shared_set[0] = theano.shared(data_x.astype(theano.config.floatX))
@@ -110,7 +115,7 @@ class Mnist(Loader):
 
   def __download_mnist(self):
     """ Downloads the mnist dataset from MNIST_URL. """
-    print "Downloading MNIST data..."
+    logger.info("Downloading MNIST data...")
     response = urllib2.urlopen(MNIST_URL)
     data = response.read()
 
@@ -131,14 +136,14 @@ class Mnist(Loader):
       # Download it first.
       self.__download_mnist()
 
-    print "Loading MNIST from disk..."
+    logger.info("Loading MNIST from disk...")
     mnist_file = gzip.open(MNIST_FILE, "rb")
     train_set, test_set, valid_set = pickle.load(mnist_file)
     mnist_file.close()
 
     # Reshape if we need to.
     if use_4d:
-      print "Note: Using 4D tensor representation. "
+      logger.debug("Note: Using 4D tensor representation. ")
 
       train_x, train_y = train_set
       test_x, test_y = test_set
@@ -160,26 +165,42 @@ class Mnist(Loader):
     self._shared_dataset(train_set, self._shared_train_set)
     self._shared_dataset(test_set, self._shared_test_set)
     self._shared_dataset(valid_set, self._shared_valid_set)
-    print "Done."
+
 
 class Ilsvrc12(Loader):
   """ Loads ILSVRC12 data that's saved to the disk. """
-  def __init__(self, batch_size, load_batches, use_4d=False):
+  def __init__(self, batch_size, load_batches):
     """
     Args:
-      load_batches: How many batches to have in VRAM at any given time.
       batch_size: How many images are in each batch.
-      use_4d: If True, will reshape the inputs for use in a CNN. Defaults to
-              False. """
+      load_batches: How many batches to have in VRAM at any given time. """
     super(Ilsvrc12, self).__init__()
 
-    self.__use_4d = use_4d
+    self.__buffer_size = batch_size * load_batches
+    # Handle to the actual buffers containing images.
+    self.__training_buffer = None
+    self.__testing_buffer = None
+    self.__training_labels = None
+    self.__testing_labels = None
+    # This is how we'll actually get images.
+    self.__image_getter = image_getter.FilteredImageGetter(ILSVRC12_URLS,
+                                                           self.__buffer_size)
+    # Lock that we use to make sure we are only getting one batch at a time.
+    self.__image_getter_lock = threading.Lock()
+
+    # These are used to signal the loader thread to load more data, and the main
+    # thread to copy the loaded data.
+    self.__train_buffer_empty = threading.Lock()
+    self.__train_buffer_full = threading.Lock()
+    self.__test_buffer_empty = threading.Lock()
+    self.__test_buffer_full = threading.Lock()
 
     self.__batch_size = batch_size
     self.__load_batches = load_batches
-    self.__buffer = cache.MemoryBuffer(224,
-                                       self.__batch_size * self.__load_batches,
-                                       color=True)
+
+    # Force it to wait for data initially.
+    self.__train_buffer_full.acquire()
+    self.__test_buffer_full.acquire()
 
     # Labels have to be integers, so that means we have to map synsets to
     # integers.
@@ -188,273 +209,138 @@ class Ilsvrc12(Loader):
 
     self.__mean = float(file(MEAN_FILE).read())
 
-    self.__current_patch = 0
-    self.__original_images = []
+    # Start the loader threads.
+    test_loader_thread = threading.Thread(target=self.__run_test_loader_thread)
+    test_loader_thread.start()
+    train_loader_thread = threading.Thread(target=self.__run_train_loader_thread)
+    train_loader_thread.start()
 
-    self.__val_synsets = self.__load_val_synsets()
-
-    self.__current_image = 0
-    self.__images = self.__shuffle()
-
-  def __shuffle(self):
-    """ Shuffles the images that we have at our disposal.
-    Returns:
-      The list of shuffled images. """
-    print "Shuffling images..."
-    base_path = os.path.join(ILSVRC12_LOCATION, "train")
-
-    # Get all the synsets.
-    possible_synsets = os.listdir(base_path)
-
-    # Get all the images into a list.
-    images = []
-    for synset in possible_synsets:
-      image_dir_path = os.path.join(base_path, synset)
-      possible_images = os.listdir(image_dir_path)
-      for image in possible_images:
-        images.append((synset, image))
-
-    # Now shuffle the list.
-    random.shuffle(images)
-
-    print "Done."
-    return images
-
-  def __load_val_synsets(self):
-    """ Loads the JSON file that tells us which validation images belong to
-    which synsets. """
-    print "Loading validation image information..."
-    synset_file = file(VAL_SYNSETS_FILE)
-    val_synsets = json.load(synset_file)
-    synset_file.close()
-
-    # We have to "invert" the map, so it maps image names to their synsets.
-    inverted = {}
-    for synset, images in val_synsets.iteritems():
-      for image_name in images:
-        inverted[image_name] = synset
-
-    print "Done."
-
-    return inverted
-
-  def __load_random_image(self, valid):
-    """ Loads a random image from the dataset.
+  def __convert_labels_to_ints(self, labels):
+    """ Converts a set of labels from the default synset names to integers, so
+    that they can actually be used in the network.
     Args:
-      valid: Whether to load from the validation images.
+      labels: The labels to convert.
     Returns:
-      The image, and the synset that the image belongs to. """
-    while True:
-      if not valid:
-        # Just get the next shuffled image.
-        if self.__current_image >= len(self.__images):
-          # We wrapped.
-          self.__current_image = 0
-
-        synset, image = self.__images[self.__current_image]
-        self.__current_image += 1
-        image_path = os.path.join(ILSVRC12_LOCATION, "train", synset, image)
-
+      A list of the converted labels. """
+    converted = []
+    for label in labels:
+      if label in self.__synsets:
+        converted.append(self.__synsets[label])
       else:
-        base_path = os.path.join(ILSVRC12_LOCATION, "val")
+        # This is the first time we've seen this synset.
+        converted.append(self.__current_label)
+        self.__synsets[label] = self.__current_label
+        self.__current_label += 1
 
-        # The images are directly in the val directory.
-        image_dir_path = base_path
+    return converted
 
-        # Choose an image.
-        possible_images = os.listdir(image_dir_path)
-        image_name = possible_images[random.randint(0, len(possible_images) - 1)]
+  def __load_next_training_batch(self):
+    """ Loads the next batch of training data from the Imagenet backend. """
+    self.__training_buffer, labels = \
+        self.__image_getter.get_random_train_batch()
 
-        image_path = os.path.join(image_dir_path, image_name)
+    # Convert labels.
+    self.__training_labels = self.__convert_labels_to_ints(labels)
 
-      # Open the image.
-      image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-
-      if image == None:
-        print "WARNING: Failed to load image: %s" % (image_path)
-        continue
-
-      if valid:
-        # We have to look up the synset from our validation synset information.
-        synset = self.__val_synsets[image_name]
-
-      return (image, synset)
-
-  def __load_new_set(self, patch=-1, load_new=True, valid=False):
-    """ Loads images from the disk into memory.
-    Args:
-      patch: Which patch to use for the images. -1 means pick a random one, and
-      other numbers from 0-9 specify an index into the tuple returned be
-      __extract_patches. If load_batches > 1 and patch is not random, extra
-      batches will have an incrementally increasing patch index.
-      load_new: Whether to actually load new images, or to just use the old
-      ones with different transformations.
-      valid: Whether to load from the validation images instead of the training
-      ones.
-    Returns:
-      The images from the new set, and the labels. """
-    print "Loading new batches..."
-    self.__buffer.clear()
-
-    # Load data from disk.
-    labels = []
-    images_for_mean = []
-    for batch in range(0, self.__load_batches):
-      if load_new:
-        self.__original_images = []
-      for i in range(0, self.__batch_size):
-        if load_new:
-          # Load new images.
-          image, synset = self.__load_random_image(valid)
-          self.__original_images.append((image, synset))
-        else:
-          # Use old images.
-          image, synset = self.__original_images[i]
-
-        if self.__mean == None:
-          # Save raw images for calculating mean.
-          images_for_mean.append(image)
-
-        # Extract patches from the image.
-        patches = self.__extract_patches(image)
-
-        if patch < 0:
-          # Pick a random patch.
-          image = patches[random.randint(0, 9)]
-        else:
-          image = patches[patch]
-
-        # Perform PCA.
-        #image = self.__pca(image)
-
-        self.__buffer.add(image, i)
-
-        # Find a label.
-        if synset in self.__synsets:
-          label = self.__synsets[synset]
-        else:
-          # We need a new label.
-          label = self.__current_label
-          self.__synsets[synset] = label
-          self.__current_label += 1
-        labels.append(label)
-
-      if patch >= 0:
-        load_new = False
-        patch += 1
-        if patch == 10:
-          patch = 0
-          # We've exhausted all our patches, so we need to load new data.
-          load_new = True
-
-    self._train_set_size = self.__batch_size * self.__load_batches
-    self._test_set_size = self.__batch_size * self.__load_batches
-    self._valid_set_size = 0
-
-    images = self.__buffer.get_storage()
     # Show image thumbnails.
     film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
-                                 for i in images[0:8]], axis=1)
-    cv2.imshow("test", film_strip)
+                                 for i in self.__training_buffer[0:8]], axis=1)
+    cv2.imshow("Input Images", film_strip)
     # Force it to update the window.
     cv2.waitKey(1)
 
-    images = images.astype(theano.config.floatX)
+    self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
-    images -= self.__mean
+    self.__training_buffer -= self.__mean
 
-    print "Done."
+  def __load_next_testing_batch(self):
+    """ Loads the next batch of testing data from the Imagenet backend. """
+    self.__testing_buffer, labels = \
+        self.__image_getter.get_random_test_batch()
 
-    return (images, np.asarray(labels))
+    # Convert labels.
+    self.__testing_labels = self.__convert_labels_to_ints(labels)
 
-  def __extract_patches(self, image):
-    """ Extracts 224x224 patches from the image. It extracts ten such patches:
-    Top left, top right, bottom left, bottom right, and center, plus horizontal
-    reflections of them all.
-    Args:
-      image: The input image to extract patches from.
-    Returns:
-      The five extracted patches. """
-    top_left = image[0:224, 0:224]
-    top_right = image[256 - 224:256, 0:224]
-    bottom_left = image[0:224, 256 - 224:256]
-    bottom_right = image[256 - 224:256, 256 - 224:256]
+    # Show image thumbnails.
+    film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
+                                 for i in self.__testing_buffer[0:8]], axis=1)
+    cv2.imshow("Input Images", film_strip)
+    # Force it to update the window.
+    cv2.waitKey(1)
 
-    distance_from_edge = (256 - 224) / 2
-    center = image[distance_from_edge:256 - distance_from_edge,
-                   distance_from_edge:256 - distance_from_edge]
+    self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
+    # Standard AlexNet procedure is to subtract the mean.
+    self.__testing_buffer -= self.__mean
 
-    # Flip everything as well.
-    top_left_flip = np.fliplr(top_left)
-    top_right_flip = np.fliplr(top_right)
-    bottom_left_flip = np.fliplr(bottom_left)
-    bottom_right_flip = np.fliplr(bottom_right)
-    center_flip = np.fliplr(center)
+  def __run_train_loader_thread(self):
+    """ The main function for the thread to load training data. """
+    while True:
+      # Make sure we don't write over our old batch.
+      self.__train_buffer_empty.acquire()
 
-    return (top_left, top_left_flip, top_right, top_right_flip, bottom_left,
-            bottom_left_flip, bottom_right, bottom_right_flip, center,
-            center_flip)
+      self.__image_getter_lock.acquire()
+      logger.info("Loading next training batch from imagenet...")
+      self.__load_next_training_batch()
 
-  def __pca(self, image):
-    """ Performs Principle Component Analysis on input image and adjusts it
-    randomly, simluating different lighting intensities.
-    Args:
-      image: Input image matrix.
-    Return:
-      Adjusted image.
-    """
-    # Reshape image.
-    reshaped_image = np.reshape(image, (224 * 224, 3))
-    # Find the covariance.
-    cov = np.cov(reshaped_image, rowvar=0)
-    # Eigenvalues and vectors.
-    eigvals, eigvecs = np.linalg.eigh(cov)
+      self.__image_getter_lock.release()
+      # Allow the main thread to use what we loaded.
+      self.__train_buffer_full.release()
 
-    # Pick random gaussian values.
-    a = np.random.normal(0, 0.1, size=(3,))
+  def __run_test_loader_thread(self):
+    """ The main function for the thread to load training data. """
+    while True:
+      # Make sure we don't write over our old batch.
+      self.__test_buffer_empty.acquire()
 
-    scaled = eigvals * a
-    delta = np.dot(eigvecs, scaled.T)
-    return np.add(delta, scaled)
+      self.__image_getter_lock.acquire()
+      logger.info("Loading next testing batch from imagenet...")
+      self.__load_next_testing_batch()
+
+      self.__image_getter_lock.release()
+      # Allow the main thread to use what we loaded.
+      self.__test_buffer_full.release()
+
+  def __swap_in_training_data(self):
+    """ Takes training data buffered into system memory and loads it into VRAM
+    for immediate use. """
+    logger.info("Waiting for new training data to be ready...")
+    self.__train_buffer_full.acquire()
+    logger.info("Loading new training dataset into VRAM...")
+
+    self._shared_dataset((self.__training_buffer, self.__training_labels),
+                         self._shared_train_set)
+
+    # Allow it to load another batch.
+    self.__train_buffer_empty.release()
+
+  def __swap_in_testing_data(self):
+    """ Takes testing data buffered into system memory and loads it into VRAM
+    for immediate use. """
+    logger.info("Waiting for new testing data to be ready...")
+    self.__test_buffer_full.acquire()
+    logger.info("Loading new testing data into VRAM...")
+
+    self._shared_dataset((self.__testing_buffer, self.__testing_labels),
+                         self._shared_test_set)
+
+    # Allow it to load another batch.
+    self.__test_buffer_empty.release()
 
   def get_train_set(self):
     # Load a new set for it.
-    dataset = self.__load_new_set()
-    self._shared_dataset(dataset, self._shared_train_set)
+    self.__swap_in_training_data()
 
     return super(Ilsvrc12, self).get_train_set()
 
   def get_test_set(self):
-    """ An important note on functionality: Every set of ten batches returned
-    by this function will be the same batch, just with a different patch. (If
-    load_batches < 10, than this function must be called multiple times to get
-    all the patches for one batch.) """
-    # FIXME (danielp): This is a temporary hack for when we don't have enough
-    # VRAM to load >=5 training batches.
-    combined_dataset = None
-    for _ in range(0, 2):
-      dataset = self.__load_new_set(patch=self.__current_patch,
-                                    load_new=(self.__current_patch == 0),
-                                    valid=True)
-      self.__current_patch += self.__load_batches
-      self.__current_patch %= 10
-
-      if not combined_dataset:
-        combined_dataset = dataset
-      else:
-        combined_dataset = (np.concatenate((combined_dataset[0], dataset[0]),
-                                           axis=0),
-                            np.concatenate((combined_dataset[1], dataset[1]),
-                                           axis=0))
-
-    self.__non_shared_test = combined_dataset
-    self._shared_dataset(combined_dataset, self._shared_test_set)
+    # Load a new set for it.
+    self.__swap_in_testing_data()
 
     return super(Ilsvrc12, self).get_test_set()
 
   def get_non_shared_test_set(self):
     """ Gets a non-shared version of the test set, useful for AlexNet. """
-    return self.__non_shared_test
+    return self.__testing_labels
 
   def save(self, filename):
     """ Allows the saving of synset associations for later use.
