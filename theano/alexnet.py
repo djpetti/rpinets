@@ -4,16 +4,59 @@ import theano.tensor as TT
 import numpy as np
 
 from simple_lenet import LeNetClassifier
+import layers
 
 
 class AlexNet(LeNetClassifier):
-  """ Special class specifically for Alexnets. """
-  def __init__(self, *args, **kwargs):
+  """ Special class specifically for Alexnets. It handles the initialization and
+  special testing methods. """
+
+  def __init__(self, train, test, batch_size, layer_override=None, **kwargs):
+    """
+    Args:
+      train: The training dataset, same as for LeNetClassifier.
+      test: The testing dataset, same as for LeNetClassifier.
+      batch_size: The size of each batch.
+      layer_override: Allows users to specify a custom set of layers instead of
+      the default AlexNet ones. """
     self.__softmaxes = []
 
     self.__backwards_propagator = None
 
-    super(AlexNet, self).__init__(*args, **kwargs)
+    # Initialize layers.
+    if not layer_override:
+      conv1 = layers.ConvLayer(kernel_width=11, kernel_height=11, stride_width=4,
+                              stride_height=4, feature_maps=96,
+                              border_mode="half")
+      conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=256,
+                              border_mode="half", start_bias=1)
+      conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
+                              border_mode="half")
+      conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
+                              border_mode="half", start_bias=1)
+      conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
+                              border_mode="half", start_bias=1)
+      pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
+                              stride_height=2)
+      flatten = layers.InnerProductLayer(size=6 * 6 * 256, dropout=True,
+                                        start_bias=1, weight_init="gaussian",
+                                        weight_stddev=0.005)
+      inner_product1 = layers.InnerProductLayer(size=4096, dropout=True,
+                                                start_bias=1,
+                                                weight_init="gaussian",
+                                                weight_stddev=0.005)
+      inner_product2 = layers.InnerProductLayer(size=4096, weight_init="gaussian",
+                                                weight_stddev=0.005)
+      norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
+                                      bias=1.0)
+
+      use_layers = [conv1, pool, norm, conv2, pool, norm, conv3, conv4, conv5, pool,
+                    flatten, inner_product1, inner_product2]
+    else:
+      use_layers = layer_override
+
+    super(AlexNet, self).__init__((224, 224, 3), use_layers, 1000, train, test,
+                                  batch_size, **kwargs)
 
   def _build_tester(self, test_x, test_y, batch_size):
     """ Same as the superclass tester, but returns the raw softmax

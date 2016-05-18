@@ -118,34 +118,7 @@ def run_imagenet_test():
 
   else:
     # Build new network.
-    conv1 = layers.ConvLayer(kernel_width=11, kernel_height=11, stride_width=4,
-                             stride_height=4, feature_maps=96,
-                             border_mode="half")
-    conv2 = layers.ConvLayer(kernel_width=5, kernel_height=5, feature_maps=256,
-                             border_mode="half", start_bias=1)
-    conv3 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
-                             border_mode="half")
-    conv4 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=384,
-                             border_mode="half", start_bias=1)
-    conv5 = layers.ConvLayer(kernel_width=3, kernel_height=3, feature_maps=256,
-                             border_mode="half", start_bias=1)
-    pool = layers.PoolLayer(kernel_width=3, kernel_height=3, stride_width=2,
-                            stride_height=2)
-    flatten = layers.InnerProductLayer(size=6 * 6 * 256, dropout=True,
-                                       start_bias=1, weight_init="gaussian",
-                                       weight_stddev=0.005)
-    inner_product1 = layers.InnerProductLayer(size=4096, dropout=True,
-                                              start_bias=1,
-                                              weight_init="gaussian",
-                                              weight_stddev=0.005)
-    inner_product2 = layers.InnerProductLayer(size=4096, weight_init="gaussian",
-                                              weight_stddev=0.005)
-    norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
-                                     bias=1.0)
-    network = AlexNet((224, 224, 3), [conv1, pool, norm, conv2, pool,
-                                      norm, conv3, conv4, conv5, pool,
-                                      flatten, inner_product1, inner_product2],
-                      1000, train, test, batch_size)
+    network = AlexNet(train, test, batch_size)
 
     network.use_sgd_trainer(learning_rate, momentum=momentum,
                             weight_decay=weight_decay,
