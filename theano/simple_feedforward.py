@@ -34,17 +34,16 @@ class FeedforwardNetwork(object):
     """ Gets the state for pickling. """
     state = (self._weights, self._biases, self._layer_stack, self._cost,
              self._inputs, self._expected_outputs, self.__trainer_type,
-             self.__train_params, self._global_step, self._print_op, self._srng,
-             self._training, self._used_training, self.__p_logits,
-             self._intermediate_activations)
+             self.__train_params, self._global_step, self._srng,
+             self._training, self._used_training, self._intermediate_activations)
     return state
 
   def __setstate__(self, state):
     """ Sets the state for unpickling. """
     self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
     self._expected_outputs, self.__trainer_type, self.__train_params, \
-    self._global_step, self._print_op, self._srng, self._training, \
-    self._used_training, self.__p_logits, self._intermediate_activations = state
+    self._global_step, self._srng, self._training, \
+    self._used_training, self._intermediate_activations = state
 
   def _initialize_variables(self, train, test, batch_size):
     """ Initializes variables that are common to all subclasses.
@@ -65,10 +64,7 @@ class FeedforwardNetwork(object):
     self.__trainer_type = None
     self.__train_params = ()
     # A global step to use for learning rate decays.
-    value = np.asarray(0).astype(theano.config.floatX)
-    self._global_step = theano.shared(value)
-
-    self._print_op = theano.printing.Print("Debug: ")
+    self._global_step = theano.shared(0)
 
     self._srng = TT.shared_randomstreams.RandomStreams()
     self._training = TT.lscalar("training")
@@ -214,18 +210,15 @@ class FeedforwardNetwork(object):
     # Tell it how to update the parameters.
     updates, grads = utils.momentum_sgd(cost, params, learning_rate, momentum,
                                         weight_decay)
-    p_grads = self._print_op(grads)
     # Update the global step too.
-    increment = theano.shared(np.asarray(1.0).astype(theano.config.floatX))
-    updates.append((self._global_step, self._global_step + increment))
+    updates.append((self._global_step, self._global_step + 1))
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    p_step = self._print_op(self._global_step)
-    trainer = theano.function(inputs=[index], outputs=[cost, self._print_lr,
-                              self.__p_logits, p_step],
+    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
+                                                       self._global_step],
                               updates=updates,
                               givens=givens)
     return trainer
@@ -247,14 +240,14 @@ class FeedforwardNetwork(object):
 
     updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
     # Update the global step too.
-    increment = theano.shared(np.asarray(1.0).astype(theano.config.floatX))
-    updates.append((self._global_step, self._global_step + increment))
+    updates.append((self._global_step, self._global_step + 1))
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, self._print_lr],
+    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
+                                                       self._global_step],
                               updates=updates,
                               givens=givens)
     return trainer
@@ -312,7 +305,6 @@ class FeedforwardNetwork(object):
     Returns:
       Symbolic op for the cross-entropy opertaion.
     """
-    self.__p_logits = self._print_op(logits)
     softmax = TT.nnet.softmax(logits)
     cross = TT.nnet.categorical_crossentropy(softmax, labels)
 
@@ -345,7 +337,6 @@ class FeedforwardNetwork(object):
     decayed_learning_rate = \
         utils.exponential_decay(learning_rate, self._global_step, decay_steps,
                                 decay_rate)
-    self._print_lr = self._print_op(decayed_learning_rate)
 
     self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
                                               momentum, weight_decay,
@@ -369,7 +360,6 @@ class FeedforwardNetwork(object):
     decayed_learning_rate = \
         utils.exponential_decay(learning_rate, self._global_step, decay_steps,
                                 decay_rate)
-    self._print_lr = self._print_op(decayed_learning_rate)
 
     self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
                                                   rho, epsilon, self._train_x,
@@ -465,4 +455,4 @@ class FeedforwardNetwork(object):
 
   def get_test_x(self):
     """ Returns: The input testing image buffer. """
-    return self._test_x 
+    return self._test_x

@@ -55,9 +55,10 @@ def run_mnist_test():
 
       test_batch_index += 1
 
-    cost = network.train(train_batch_index)[0]
+    cost, rate, step = network.train(train_batch_index)
     if iterations % 100 == 0:
-      print "Training cost: %f" % (cost)
+      print "Training cost: %f, learning rate: %f, step: %d" % \
+            (cost, rate, step)
 
     iterations += 1
     train_batch_index += 1
@@ -176,8 +177,9 @@ def run_imagenet_test():
 
       test_batch_index += 1
 
-    cost = network.train(train_batch_index)[0]
-    print "Training cost: %f" % (cost)
+    cost, rate, step = network.train(train_batch_index)
+    print "Training cost: %f, learning rate: %f, step: %d" % \
+            (cost, rate, step)
 
     if iterations % 50 == 0:
       print "Saving network..."

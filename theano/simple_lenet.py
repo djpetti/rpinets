@@ -146,7 +146,6 @@ class LeNetClassifier(FeedforwardNetwork):
     # Reshape convolution outputs so they can be used as inputs to the
     # feedforward network.
     flattened_inputs = TT.flatten(next_inputs, 2)
-    self._pflat = self._print_op(flattened_inputs)
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
