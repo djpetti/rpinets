@@ -64,7 +64,8 @@ class LeNetClassifier(FeedforwardNetwork):
     return conv, feedforward
 
   def __initialize_weights(self, image_size, conv_layers, feedforward_inputs):
-    """ Initializes tensors containing the weights for each convolutional layer.
+    """ Initializes tensors containing the weights and biases for each
+    convolutional layer.
     Args:
       image_size: The size of the input image.
       conv_layers: A list of ConvLayer, PoolLayer and NormalizationLayer
@@ -73,6 +74,7 @@ class LeNetClassifier(FeedforwardNetwork):
     image_x, image_y, channels = image_size
 
     self.__our_weights = []
+    self.__our_biases = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
     # Extract only convolutional layers.
@@ -93,6 +95,12 @@ class LeNetClassifier(FeedforwardNetwork):
       weights = theano.shared(weights_values)
       self.__our_weights.append(weights)
 
+      # Initialize biases.
+      bias_values = np.full((layer.feature_maps,), layer.start_bias,
+                             dtype=theano.config.floatX)
+      bias = theano.shared(bias_values)
+      self.__our_biases.append(bias)
+
       input_feature_maps = layer.feature_maps
 
   def __add_layers(self, conv_layers, feedforward_layers, outputs):
@@ -104,7 +112,6 @@ class LeNetClassifier(FeedforwardNetwork):
       feedforward_layers: A list denoting the number of inputs for each
       feedforward layer.
       outputs: The number of outputs of the network. """
-    our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = self._inputs
@@ -114,18 +121,16 @@ class LeNetClassifier(FeedforwardNetwork):
         # Convolution.
         weights = self.__our_weights[weight_index]
         output_feature_maps, _, _, _ = self.__weight_shapes[weight_index]
-        weight_index += 1
 
         conv = TT.nnet.conv2d(next_inputs, weights,
                               subsample=(layer_spec.stride_width,
                                          layer_spec.stride_height),
                               border_mode=layer_spec.border_mode)
         # Activation.
-        bias_values = np.full((output_feature_maps,), layer_spec.start_bias,
-                              dtype=theano.config.floatX)
-        bias = theano.shared(bias_values)
-        our_biases.append(bias)
+        bias = self.__our_biases[weight_index]
         next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
+
+        weight_index += 1
 
       elif isinstance(layer_spec, NormalizationLayer):
         # Local normalization.
@@ -149,7 +154,7 @@ class LeNetClassifier(FeedforwardNetwork):
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
-    self._biases.extend(our_biases)
+    self._biases.extend(self.__our_biases)
     # Build the fully-connected part of the network.
     self._extend_with_feedforward(flattened_inputs, feedforward_layers, outputs)
 

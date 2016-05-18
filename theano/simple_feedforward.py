@@ -75,11 +75,12 @@ class FeedforwardNetwork(object):
     self._intermediate_activations = []
 
   def __initialize_weights(self, layers, outputs):
-    """ Initializes tensors containing the weights for each layer.
+    """ Initializes tensors containing the weights and biases for each layer.
     Args:
       layers: A list denoting the number of inputs of each layer.
       outputs: The number of outputs of the network. """
     self.__our_weights = []
+    self.__our_biases = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
     # This is in case we have a single hidden layer.
@@ -96,11 +97,21 @@ class FeedforwardNetwork(object):
       self.__our_weights.append(weights)
       self.__weight_shapes.append((fan_in, fan_out))
 
+      # Initialize biases.
+      bias_values = np.full((fan_out,), layers[i].start_bias,
+                            dtype=theano.config.floatX)
+      bias = theano.shared(bias_values)
+      self.__our_biases.append(bias)
+
     # Include outputs also.
     weights_values = np.asarray(np.random.normal(0, 0.01,
                                                  size=(fan_out, outputs)),
                                 dtype=theano.config.floatX)
     self.__our_weights.append(theano.shared(weights_values))
+    bias_values = np.full((outputs,), layers[i].start_bias,
+                          dtype=theano.config.floatX)
+    self.__our_biases.append(theano.shared(bias_values))
+
     self.__weight_shapes.append((fan_out, outputs))
 
   def __add_layers(self, first_inputs, layers):
@@ -109,7 +120,6 @@ class FeedforwardNetwork(object):
     Args:
       first_inputs: The tensor to use as inputs to the first hidden layer.
       layers: The list of all the layers in this network. """
-    our_biases = []
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = first_inputs
@@ -117,11 +127,8 @@ class FeedforwardNetwork(object):
       weights = self.__our_weights[i]
       _, fan_out = self.__weight_shapes[i]
       layer = layers[i]
+      bias = self.__our_biases[i]
 
-      bias_values = np.full((fan_out,), layer.start_bias,
-                            dtype=theano.config.floatX)
-      bias = theano.shared(bias_values)
-      our_biases.append(bias)
       sums = TT.dot(next_inputs, weights) + bias
       if i < len(self.__our_weights) - 1:
         next_inputs = TT.nnet.relu(sums)
@@ -143,7 +150,7 @@ class FeedforwardNetwork(object):
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
-    self._biases.extend(our_biases)
+    self._biases.extend(self.__our_biases)
 
   def __build_model(self, layers, outputs):
     """ Actually constructs the graph for this model.
