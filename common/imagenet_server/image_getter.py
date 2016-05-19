@@ -53,6 +53,21 @@ def _parse_url_file(file_data, separator=" ", get_utf=False):
     return mappings, utf_mappings
   return mappings
 
+def _write_url_file(images, separator=" "):
+  """ ImageNet generally uses a specific format to store the URLs of images.
+  This converts a set of images into this format.
+  Args:
+    images: The set of images to write. It should contain tuples with image
+    WNIDs and URLs.
+    separator: Default string used to separate WNID from URL in the file.
+  Returns:
+    A raw string which can then be written to a file. """
+  file_data = ""
+  for wnid, url in images:
+    line = "%s%s%s\n" % (wnid, separator, url)
+    file_data += line
+  return file_data
+
 
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
@@ -86,8 +101,8 @@ class ImageGetter(object):
 
     # Make internal datasets for training and testing.
     train, test = self.__split_train_test_images(test_percentage)
-    self.__train_set = _TrainingDataset(train, self._cache, self.__batch_size)
-    self.__test_set = _TestingDataset(test, self._cache, self.__batch_size)
+    self._train_set = _TrainingDataset(train, self._cache, self.__batch_size)
+    self._test_set = _TestingDataset(test, self._cache, self.__batch_size)
 
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
@@ -256,7 +271,7 @@ class ImageGetter(object):
 
     return loaded
 
-  def _remove_bad_images(self, bad_images):
+  def __remove_bad_images(self, bad_images):
     """ Removes bad images from the synset files.
     Args:
       bad_images: A list of the images to remove. Should contain tuples of the
@@ -284,10 +299,10 @@ class ImageGetter(object):
     """ Gets a random training batch.
     Returns:
       The array of loaded images, and the list of labels. """
-    images, failures = self.__train_set.get_random_batch()
+    images, failures = self._train_set.get_random_batch()
 
     # Remove failures from the synset files.
-    self._remove_bad_images(failures)
+    self.__remove_bad_images(failures)
 
     return images
 
@@ -295,10 +310,10 @@ class ImageGetter(object):
     """ Gets a random testing batch.
     Returns:
       The array of loaded images, and the list of labels. """
-    images, failures = self.__test_set.get_random_batch()
+    images, failures = self._test_set.get_random_batch()
 
     # Remove failures from the synset files.
-    self._remove_bad_images(failures)
+    self.__remove_bad_images(failures)
 
     return images
 
@@ -307,12 +322,15 @@ class FilteredImageGetter(ImageGetter):
   """ Works like an ImageGetter, but only loads images from a specific
   pre-defined file containing image names and their URLs. """
 
-  def __init__(self, url_file, batch_size, **kwargs):
+  def __init__(self, url_file, batch_size, remove_bad=True, **kwargs):
     """
     Args:
       url_file: Name of the file containing the images to use.
-      batch_size: The size of each batch. """
+      batch_size: The size of each batch.
+      remove_bad: Whether to modify url_file in order to remove broken links.
+      The default is True. """
     self.__url_file = url_file
+    self.__remove_bad = remove_bad
 
     super(FilteredImageGetter, self).__init__(None, batch_size, **kwargs)
 
@@ -330,10 +348,41 @@ class FilteredImageGetter(ImageGetter):
         self._synsets[synset] = []
       self._synsets[synset].append([wnid, url])
 
-  def _remove_bad_images(self, *args, **kwargs):
-    """ No-op to stop it from trying to access synsets that we don't know about.
-    """
-    pass
+  def __write_url_file(self):
+    """ Writes the current images in this dataset to a URL file. """
+    logger.debug("Writing images to URL file '%s'..." % (self.__url_file))
+
+    train_images = self._train_set.get_images()
+    test_images = self._test_set.get_images()
+    combined_images = train_images.union(test_images)
+
+    file_data = _write_url_file(combined_images, separator="\t")
+
+    url_file = open(self.__url_file, "w")
+    url_file.write(file_data)
+    url_file.close()
+
+  def get_random_train_batch(self):
+    """ Gets a random training batch.
+    Returns:
+      The array of loaded images, and the list of labels. """
+    images, failures = self._train_set.get_random_batch()
+
+    if self.__remove_bad:
+      self.__write_url_file()
+
+    return images
+
+  def get_random_test_batch(self):
+    """ Gets a random testing batch.
+    Returns:
+      The array of loaded images, and the list of labels. """
+    images, failures = self._test_set.get_random_batch()
+
+    if self.__remove_bad:
+      self.__write_url_file()
+
+    return images
 
 
 class _Dataset(object):
@@ -396,7 +445,7 @@ class _Dataset(object):
         # Remove failed image.
         wnid = "%s_%s" % (synset, name)
 
-        logger.info("Removing bad image %s." % (wnid))
+        logger.info("Removing bad image %s, %s" % (wnid, url))
 
         self.__images.remove((wnid, url))
         to_remove.append((wnid, url))
@@ -445,6 +494,10 @@ class _Dataset(object):
       return cached_image
 
     return None
+
+  def get_images(self):
+    """ Gets all the images in the dataset. """
+    return self.__images
 
 
 class _TrainingDataset(_Dataset):

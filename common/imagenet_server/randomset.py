@@ -27,7 +27,7 @@ class RandomSet(object):
       item: The item to add. """
     if item not in self:
       # If it's not a duplicate, add it.
-      self.__data.push_back(item)
+      self.__data.append(item)
 
       index = len(self.__data) - 1
       self.__data_to_indices[item] = index
@@ -53,8 +53,23 @@ class RandomSet(object):
     index = random.randint(0, len(self.__data) - 1)
     return self.__data[index]
 
+  def union(self, other):
+    """ Take the union of two RandomSets.
+    Args:
+      other: The other RandomSet.
+    Returns:
+      The union of the two sets. """
+    union = RandomSet(self.__data[:])
+    for item in other.__data:
+      union.add(item)
+
+    return union
+
   def __len__(self):
     return len(self.__data)
 
   def __contains__(self, item):
     return item in self.__data_to_indices
+
+  def __iter__(self):
+    return self.__data.__iter__()
