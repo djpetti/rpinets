@@ -55,12 +55,21 @@ class LeNetClassifier(FeedforwardNetwork):
       weights = tf.Variable(tf.random_normal(shape, stddev=1))
       self.__weights.append(weights)
 
-    # Calculate our final input size based on the number of maxpoolings we do.
+    # The shapes of our convolution outputs will not be the same as those of our
+    # inputs, which complicates things somewhat.
     image_x, image_y, channels = image_size
-    final_x = image_x / (2 * len(conv_layers))
-    final_y = image_y / (2 * len(conv_layers))
+    output_shape = (image_x, image_y)
+    # Calculate shape of output.
+    for layer in conv_layers:
+      out_shape_x = output_shape[0] - layer.kernel_width + 1
+      out_shape_y = output_shape[1] - layer.kernel_height + 1
+      # Factor in maxpooling.
+      out_shape_x /= 2
+      out_shape_y /= 2
+      output_shape = (out_shape_x, out_shape_y)
 
     # Add last convolutional layer weights.
+    final_x, final_y = output_shape
     shape = [next_layer.kernel_width, next_layer.kernel_height,
              next_layer.feature_maps, feedforward_inputs / \
                 final_x / final_y / channels]
@@ -76,11 +85,11 @@ class LeNetClassifier(FeedforwardNetwork):
       outputs: The number of outputs of the network. """
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
-    next_inputs = self.__reshaped_inputs
+    next_inputs = self._inputs
     for weights in self.__weights:
       # Convolution.
       conv = tf.nn.conv2d(next_inputs, weights, strides=[1, 1, 1, 1],
-                          padding="SAME")
+                          padding="VALID")
       # Activation.
       num_outputs = weights.get_shape()[3]
       bias = tf.Variable(tf.constant(0.1, shape=[num_outputs]))
@@ -110,11 +119,8 @@ class LeNetClassifier(FeedforwardNetwork):
     self.__initialize_weights(image_size, conv_layers, num_inputs)
 
     # Inputs and outputs.
-    self._inputs = tf.placeholder("float", [None, None])
+    self._inputs = tf.placeholder("float", [None, 28, 28, 1])
     self._expected_outputs = tf.placeholder("float", [None, outputs])
-    # Reshape inputs to a 4D tensor.
-    new_shape = [-1] + list(image_size)
-    self.__reshaped_inputs = tf.reshape(self._inputs, new_shape)
 
     # Build actual layer model.
     self.__add_layers(feedforward_layers, outputs)
