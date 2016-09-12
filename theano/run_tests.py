@@ -101,8 +101,8 @@ def run_imagenet_test():
   epsilon = 1e-6
 
   # Where we save the network.
-  save_file = "alexnet.pkl"
-  synsets_save_file = "synsets.pkl"
+  save_file = "/home/theano/training_data/alexnet.pkl"
+  synsets_save_file = "/home/theano/training_data/synsets.pkl"
 
   data = data_loader.Ilsvrc12(batch_size, load_batches)
   if os.path.exists(synsets_save_file):
@@ -243,7 +243,7 @@ def main():
   # Configure root logger.
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
-  file_handler = logging.FileHandler("run_tests.log")
+  file_handler = logging.FileHandler("/home/theano/run_tests.log")
   file_handler.setLevel(logging.DEBUG)
   stream_handler = logging.StreamHandler()
   stream_handler.setLevel(logging.WARNING)

@@ -24,7 +24,10 @@ MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 MEAN_FILE = "mean.txt"
 
-ILSVRC12_URLS = "../common/imagenet_server/ilsvrc12_urls.txt"
+# URL list for ILSVRC12.
+ILSVRC12_URLS = "/home/theano/training_data/ilsvrc12_urls.txt"
+# Where to cache downloaded files.
+CACHE_LOCATION = "/home/theano/training_data/cache"
 
 
 logger = logging.getLogger(__name__)
@@ -184,6 +187,7 @@ class Ilsvrc12(Loader):
     self.__testing_labels = None
     # This is how we'll actually get images.
     self.__image_getter = image_getter.FilteredImageGetter(ILSVRC12_URLS,
+                                                           CACHE_LOCATION,
                                                            self.__buffer_size)
     # Lock that we use to make sure we are only getting one batch at a time.
     self.__image_getter_lock = threading.Lock()
@@ -243,11 +247,11 @@ class Ilsvrc12(Loader):
     self.__training_labels = self.__convert_labels_to_ints(labels)
 
     # Show image thumbnails.
-    film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
-                                 for i in self.__training_buffer[0:8]], axis=1)
-    cv2.imshow("Input Images", film_strip)
+    #film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
+    #                             for i in self.__training_buffer[0:8]], axis=1)
+    #cv2.imshow("Input Images", film_strip)
     # Force it to update the window.
-    cv2.waitKey(1)
+    #cv2.waitKey(1)
 
     self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
@@ -262,11 +266,11 @@ class Ilsvrc12(Loader):
     self.__testing_labels = self.__convert_labels_to_ints(labels)
 
     # Show image thumbnails.
-    film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
-                                 for i in self.__testing_buffer[0:8]], axis=1)
-    cv2.imshow("Input Images", film_strip)
+    #film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
+    #                             for i in self.__testing_buffer[0:8]], axis=1)
+    #cv2.imshow("Input Images", film_strip)
     # Force it to update the window.
-    cv2.waitKey(1)
+    #cv2.waitKey(1)
 
     self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.

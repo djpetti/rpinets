@@ -5,8 +5,6 @@ import random
 import time
 import urllib2
 
-import cv2
-
 from randomset import RandomSet
 import cache
 import data_augmentation
@@ -72,18 +70,20 @@ def _write_url_file(images, separator=" "):
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
 
-  def __init__(self, synset_location, batch_size, test_percentage=0.1,
-               download_words=False):
+  def __init__(self, synset_location, cache_location, batch_size,
+               test_percentage=0.1, download_words=False):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
       exist.
+      cache_location: Where to cache downloaded images. Will be created if it
+      doesn't exist.
       batch_size: The size of each batch to load.
       test_percentage: The percentage of the total images that will be used for
       testing.
       download_words: Whether to download the words for each synset as well as
       just the numbers. """
-    self._cache = cache.DiskCache("image_cache", 50000000000,
+    self._cache = cache.DiskCache(cache_location, 50000000000,
                                    download_words=download_words)
     self.__batch_size = batch_size
 
@@ -322,17 +322,19 @@ class FilteredImageGetter(ImageGetter):
   """ Works like an ImageGetter, but only loads images from a specific
   pre-defined file containing image names and their URLs. """
 
-  def __init__(self, url_file, batch_size, remove_bad=True, **kwargs):
+  def __init__(self, url_file, cache_location, batch_size, remove_bad=True,
+               **kwargs):
     """
     Args:
       url_file: Name of the file containing the images to use.
+      cache_location: Where to store downloaded images.
       batch_size: The size of each batch.
       remove_bad: Whether to modify url_file in order to remove broken links.
       The default is True. """
     self.__url_file = url_file
     self.__remove_bad = remove_bad
 
-    super(FilteredImageGetter, self).__init__(None, batch_size, **kwargs)
+    super(FilteredImageGetter, self).__init__(None, cache_location, batch_size, **kwargs)
 
   def _populate_synsets(self):
     """ Populates the synsets dict. """

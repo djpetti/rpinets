@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import logging
+import os
 
 import cv2
 
@@ -10,7 +11,7 @@ def main():
   # Configure root logger.
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
-  file_handler = logging.FileHandler("server.log")
+  file_handler = logging.FileHandler("/home/theano/server.log")
   file_handler.setLevel(logging.DEBUG)
   stream_handler = logging.StreamHandler()
   stream_handler.setLevel(logging.INFO)
@@ -22,8 +23,13 @@ def main():
   root.addHandler(stream_handler)
 
   root.info("Starting...")
-  getter = image_getter.ImageGetter("synsets")
-  batch = getter.get_random_batch(10)
+
+  training_data_path = "/home/theano/training_data/"
+  synset_path = os.path.join(training_data_path, "synsets")
+  cache_path = os.path.join(training_data_path, "cache")
+
+  getter = image_getter.ImageGetter(synset_path, cache_path, 10)
+  batch = getter.get_random_train_batch()
   for image in batch:
     cv2.imshow("test", image)
     cv2.waitKey(0)
