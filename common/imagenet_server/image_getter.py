@@ -71,7 +71,7 @@ class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
 
   def __init__(self, synset_location, cache_location, batch_size,
-               test_percentage=0.1, download_words=False):
+               preload_batches=1, test_percentage=0.1, download_words=False):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
@@ -79,6 +79,8 @@ class ImageGetter(object):
       cache_location: Where to cache downloaded images. Will be created if it
       doesn't exist.
       batch_size: The size of each batch to load.
+      preload_batches: The number of batches that will be preloaded. Increasing
+      this number uses more RAM, but can greatly increase performance.
       test_percentage: The percentage of the total images that will be used for
       testing.
       download_words: Whether to download the words for each synset as well as
@@ -101,8 +103,10 @@ class ImageGetter(object):
 
     # Make internal datasets for training and testing.
     train, test = self.__split_train_test_images(test_percentage)
-    self._train_set = _TrainingDataset(train, self._cache, self.__batch_size)
-    self._test_set = _TestingDataset(test, self._cache, self.__batch_size)
+    self._train_set = _TrainingDataset(train, self._cache, self.__batch_size,
+                                       preload_batches=preload_batches)
+    self._test_set = _TestingDataset(test, self._cache, self.__batch_size,
+                                     preload_batches=preload_batches)
 
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
@@ -403,6 +407,9 @@ class _Dataset(object):
 
     self._batch_size = batch_size
 
+    # The number of images that we've currently requested be downloaded.
+    self.__num_downloading = 0
+
     logger.info("Have %d total images in database." % (len(self.__images)))
 
   def __pick_random_image(self):
@@ -426,18 +433,22 @@ class _Dataset(object):
       to, as well as a list of all images that failed to download. """
     logger.info("Getting batch.")
 
-    self._mem_buffer.clear()
-
     # Keeps track of images that were already used this batch.
     self.__already_picked = set([])
 
     # Try to download initial images.
-    for _ in range(0, self._batch_size):
+    need_images = self._mem_buffer.get_max_images() - self.__num_downloading
+    logger.debug("Need to start downloading %d additional images." %
+                 (need_images))
+    for _ in range(0, need_images):
       self.__load_random_image()
+    self.__num_downloading += need_images
 
-    # Wait for all the downloads to complete, replacing any ones that fail.
+    # Wait for 1 batch worth of the downloads to complete,
+    # replacing any ones that fail.
     to_remove = []
-    while True:
+    successfully_downloaded = 0
+    while successfully_downloaded < self._batch_size:
       failures = self._download_manager.get_failures()
       if len(failures):
         logger.debug("Replacing %d failed downloads." % (len(failures)))
@@ -455,12 +466,16 @@ class _Dataset(object):
         # Load a new image to replace it.
         self.__load_random_image()
 
-      if not self._download_manager.update():
-        break
+      more_jobs, downloaded = self._download_manager.update()
+      successfully_downloaded += downloaded
+      if not more_jobs:
+        # No more images are queued for download.
+        return
 
       time.sleep(0.2)
 
-    return self._mem_buffer.get_storage(), to_remove
+    self.__num_downloading -= self._batch_size
+    return self._mem_buffer.get_batch(), to_remove
 
   def __load_random_image(self):
     """ Loads a random image from either the cache or the internet. If loading
@@ -505,11 +520,16 @@ class _Dataset(object):
 class _TrainingDataset(_Dataset):
   """ A standard training dataset. """
 
-  def __init__(self, images, disk_cache, batch_size):
-    """ See documentation for superclass method. """
+
+  def __init__(self, images, disk_cache, batch_size, preload_batches=1):
+    """ See documentation for superclass method.
+    Extra Args:
+      preload_batches: How many additional batches to preload. This can greatly
+                       increase performace, but uses additional RAM. """
     super(_TrainingDataset, self).__init__(images, disk_cache, batch_size)
 
-    self._mem_buffer = cache.MemoryBuffer(224, batch_size, channels=3)
+    self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
+                                          channels=3)
     self._download_manager = downloader.DownloadManager(200,
         self._cache, self._mem_buffer)
 
@@ -519,14 +539,18 @@ class _TestingDataset(_Dataset):
   every patch for each image, and stores 10 versions of each batch, one for each
   patch type. """
 
-  def __init__(self, images, disk_cache, batch_size):
+  def __init__(self, images, disk_cache, batch_size, preload_batches=1):
     """ See documentation for _Dataset __init__ function.
     NOTE: batch_size here represents the base batch size. When you request a
     batch, it will actually return 10 times this many images, since it will use
-    all the patches. """
+    all the patches.
+    Extra Args:
+      preload_batches: How many additional batches to preload. This can greatly
+                       increase performace, but uses additional RAM. """
     super(_TestingDataset, self).__init__(images, disk_cache, batch_size)
 
     # We need 10x the buffer space to store the extra patches.
-    self._mem_buffer = cache.MemoryBuffer(224, batch_size * 10, channels=3)
+    self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
+                                          channels=3, num_patches=10)
     self._download_manager = downloader.DownloadManager(200,
-        self._cache, self._mem_buffer, patch_separation=batch_size)
+        self._cache, self._mem_buffer, all_patches=True)

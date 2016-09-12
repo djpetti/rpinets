@@ -26,16 +26,19 @@ def main():
 
   root.info("Starting...")
 
-  getter = image_getter.FilteredImageGetter("ilsvrc12_urls.txt", "image_cache", 10)
-  batch = getter.get_random_train_batch()
+  getter = image_getter.FilteredImageGetter("ilsvrc12_urls.txt", "image_cache",
+                                            10, preload_batches=2)
 
-  print batch[1]
-  print len(batch[1])
-  i = 0
-  for image in batch[0]:
-    print "Showing image: %d" % (i)
-    i += 1
-    cv2.imshow("test", np.transpose(image, (1, 2, 0)))
-    cv2.waitKey(0)
+  for x in range(0, 3):
+    batch = getter.get_random_test_batch()
+
+    print batch[1]
+    print len(batch[1])
+    i = 0
+    for image in batch[0]:
+      print "Showing image: %d" % (i)
+      i += 1
+      cv2.imshow("test", np.transpose(image, (1, 2, 0)))
+      cv2.waitKey(0)
 
 main()

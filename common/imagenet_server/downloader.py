@@ -73,20 +73,18 @@ class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
 
   def __init__(self, process_limit, disk_cache, mem_buffer,
-               patch_separation=-1, timeout=15):
+               all_patches=False, timeout=15):
     """
     Args:
       process_limit: Maximum number of downloads we can run at one time.
       disk_cache: DiskCache to save downloaded images to.
       mem_buffer: MemoryBuffer to save downloaded images to.
-      patch_separation: How much to separate each patch of the same image in the
-      memory buffer. Defaults to -1, in which case only one random patch will be
-      saved for each image.
+      all_patches: Whether to save all the patches, or just pick one at random.
       timeout: How long downloader processes can run before we terminate them. """
     self.__process_limit = process_limit
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
-    self.__patch_separation = patch_separation
+    self.__all_patches = all_patches
     self.__timeout = timeout
 
     # Downloads that are waiting to start.
@@ -113,7 +111,11 @@ class DownloadManager(object):
     """ Adds any new processes, and cleans up any old ones. Should be called
     periodically.
     Returns:
-      True if there are still more downloads pending, False otherwise. """
+      True if there are still more downloads pending, False otherwise, as well
+      as the number of new images that were successfully downloaded since the
+      last call to update. """
+    downloaded = 0
+
     # Check for any download processes that have taken too long.
     for process in multiprocessing.active_children():
       if (time.time() - process.get_start_time()) > self.__timeout:
@@ -152,21 +154,22 @@ class DownloadManager(object):
         self.__failures.add((synset, name, url))
         continue
 
-      if self.__patch_separation < 0:
+      if not self.__all_patches:
         # Choose a random patch.
         patch = patches[random.randint(0, len(patches) - 1)]
         self.__mem_buffer.add(patch, name, synset)
       else:
-        self.__mem_buffer.add_patches(self.__patch_separation, patches, name,
-                                      synset)
+        self.__mem_buffer.add_patches(patches, name, synset)
 
       # Add it to the disk cache.
       self.__disk_cache.add(image, name, synset)
 
+      downloaded += 1
+
     if not (processes or data):
       # We're done downloading everything, so we can clear the terminated set.
       self.__terminated = set([])
-    return processes or data
+    return (processes or data), downloaded
 
   def wait_for_downloads(self):
     """ Waits until all the downloads are finished, basically by calling update
