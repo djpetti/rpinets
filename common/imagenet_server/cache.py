@@ -226,20 +226,23 @@ class MemoryBuffer(Cache):
   can be used as a staging area before a batch is transferred into GPU memory.
   """
 
-  def __init__(self, image_size, num_images, channels=1):
+  def __init__(self, image_size, num_images, channels=1, num_patches=1):
     """
     Args:
       image_size: Size of one side of a square image.
       num_images: How many images this buffer should be able to hold.
       channels: Number of channels the images have.
+      num_patches: The number of patches that are expected for each image.
     """
     super(MemoryBuffer, self).__init__()
 
     self.__image_size = image_size
     self.__num_images = num_images
+    self.__num_patches = num_patches
     # This will be are underlying storage for the cache.
     self.__channels = channels
-    shape = (self.__num_images, self.__channels, image_size, image_size)
+    shape = (self.__num_images * self.__num_patches, self.__channels,
+             image_size, image_size)
     self.__storage = np.empty(shape, dtype="uint8")
 
     self.__fill_index = 0
@@ -247,6 +250,35 @@ class MemoryBuffer(Cache):
     self.__image_indices = {}
     # Keeps a list of image synsets in the order that they were added.
     self.__labels = []
+
+    # Keeps track of the start of the last batch that we got.
+    self.__batch_index = 0
+
+  def __increment_fill_index(self):
+    """ Increments the fill index, handling boundary conditions appropriately.
+    """
+    self.__fill_index += 1
+    # If we caught up to batch_index, that's a problem.
+    if self.__fill_index == self.__batch_index:
+      raise ValueError("Cannot add to full buffer.")
+    # It should wrap back to zero when we hit the end.
+    self.__fill_index %= self.__num_images
+
+  def __increment_batch_index(self, batch_size):
+    """ Increments the batch index, handling boundary conditions appropriately.
+    Args:
+      batch_size: The size of each batch. """
+    previous_sign = self.__batch_index - self.__fill_index
+    previous_sign /= abs(previous_sign)
+
+    self.__batch_index += batch_size * self.__num_patches
+
+    # If we caught up to fill_index, that's a problem.
+    new_sign = self.__batch_index - self.__fill_index
+    new_sign /= abs(new_sign)
+
+    if previous_sign != new_sign:
+      raise ValueError("Buffer does not contain a complete batch.")
 
   def add(self, image, name, synset):
     """ Adds a new image to the buffer.
@@ -257,7 +289,8 @@ class MemoryBuffer(Cache):
     logger.debug("Adding %s to buffer at %d." % (name, self.__fill_index))
 
     self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
-    self.__fill_index += 1
+
+    self.__increment_fill_index()
 
     unique_identifier = "%s_%s" % (synset, name)
     self.__image_indices[unique_identifier] = self.__fill_index
@@ -280,7 +313,8 @@ class MemoryBuffer(Cache):
       location = self.__fill_index + i * batch_size
       self.__storage[location] = np.transpose(patch, (2, 0, 1))
       patch_locations.append(location)
-    self.__fill_index += 1
+
+    self.__increment_fill_index()
 
     unique_identifier = "%s_%s" % (synset, name)
     self.__image_indices[unique_identifier] = patch_locations
@@ -322,6 +356,25 @@ class MemoryBuffer(Cache):
     labels for every item in the buffer. """
     return (self.__storage, self.__labels)
 
+  def get_batch(self, batch_size):
+    """ Gets a portion of the storage of size batch_size. After this is called,
+    it advances batch_index, so that this portion of memory can be overwritten
+    again.
+    Args:
+      batch_size: The size of the batch to get. Should be an exact multiple of
+      the total size of the buffer, otherwise it will throw an exception when it
+      gets to the end and the window goes out of bounds.
+    Returns:
+      The batch data, and label data. """
+    batch = self.__storage[self.__batch_index:batch_size]
+    labels = self.__labels[self.__batch_index:batch_size]
+
+    self.__batch_index += batch_size
+    # It should wrap back to zero at the end.
+    self.__batch_index %= self.__num_images
+
+    return self.__batch_index
+
   def clear(self):
     """ Deletes everything in the cache. """
     self.__fill_index = 0
@@ -332,3 +385,16 @@ class MemoryBuffer(Cache):
     Returns:
       The maximum number of images that can be stored in this buffer. """
     return self.__num_images
+
+  def space_used(self):
+    """
+    Returns:
+      The total number of images in this buffer. """
+    return self.__fill_index
+
+  def space_remaining(self):
+    """
+    Returns:
+      The total number of images that can still be added to this buffer before
+      it's full. """
+    return self.get_max_size() - self.__fill_index

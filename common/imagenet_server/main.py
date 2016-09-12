@@ -5,13 +5,15 @@ import os
 
 import cv2
 
+import numpy as np
+
 import image_getter
 
 def main():
   # Configure root logger.
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
-  file_handler = logging.FileHandler("/home/theano/server.log")
+  file_handler = logging.FileHandler("test_image_getter.log")
   file_handler.setLevel(logging.DEBUG)
   stream_handler = logging.StreamHandler()
   stream_handler.setLevel(logging.INFO)
@@ -24,14 +26,16 @@ def main():
 
   root.info("Starting...")
 
-  training_data_path = "/home/theano/training_data/"
-  synset_path = os.path.join(training_data_path, "synsets")
-  cache_path = os.path.join(training_data_path, "cache")
-
-  getter = image_getter.ImageGetter(synset_path, cache_path, 10)
+  getter = image_getter.FilteredImageGetter("ilsvrc12_urls.txt", "image_cache", 10)
   batch = getter.get_random_train_batch()
-  for image in batch:
-    cv2.imshow("test", image)
+
+  print batch[1]
+  print len(batch[1])
+  i = 0
+  for image in batch[0]:
+    print "Showing image: %d" % (i)
+    i += 1
+    cv2.imshow("test", np.transpose(image, (1, 2, 0)))
     cv2.waitKey(0)
 
 main()
