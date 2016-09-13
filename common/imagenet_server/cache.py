@@ -254,13 +254,17 @@ class MemoryBuffer(Cache):
     self.__storage = np.empty(shape, dtype="uint8")
 
     self.__fill_index = 0
+    # Fill index for the label array.
+    self.__label_fill_index = 0
     # Maps image names to indices in the underlying array.
     self.__image_indices = {}
     # Keeps a list of image synsets in the order that they were added.
-    self.__labels = []
+    self.__labels = [None] * self.__batch_size * self.__num_batches
 
     # Keeps track of the start of the last batch that we got.
     self.__batch_index = 0
+    # Batch index for the label array.
+    self.__label_batch_index = 0
 
     # Total number of images in the buffer.
     self.__data_in_buffer = 0
@@ -269,6 +273,7 @@ class MemoryBuffer(Cache):
     """ Increments the fill index, handling boundary conditions appropriately.
     """
     self.__fill_index += 1
+    self.__label_fill_index += 1
 
     if self.__fill_index % self.__batch_size == 0:
       # We added a complete batch, so we have to skip a bunch of indices to
@@ -277,6 +282,7 @@ class MemoryBuffer(Cache):
 
     # It should wrap back to zero when we hit the end.
     self.__fill_index %= self.__num_images
+    self.__label_fill_index %= self.__batch_size * self.__num_batches
 
     self.__data_in_buffer += self.__num_patches
     if self.__data_in_buffer > self.get_max_patches():
@@ -285,8 +291,11 @@ class MemoryBuffer(Cache):
   def __increment_batch_index(self):
     """ Increments the batch index, handling boundary conditions appropriately. """
     self.__batch_index += self.__batch_size * self.__num_patches
+    self.__label_batch_index += self.__batch_size
+
     # It should wrap back to zero at the end.
     self.__batch_index %= self.__num_images
+    self.__label_batch_index %= self.__batch_size * self.__num_batches
 
     self.__data_in_buffer -= self.__batch_size * self.__num_patches
     if self.__data_in_buffer < 0:
@@ -302,12 +311,12 @@ class MemoryBuffer(Cache):
 
     self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
 
-    self.__increment_fill_index()
-
     unique_identifier = "%s_%s" % (synset, name)
     self.__image_indices[unique_identifier] = self.__fill_index
 
-    self.__labels.append(synset)
+    self.__labels[self.__label_fill_index] = synset
+
+    self.__increment_fill_index()
 
   def add_patches(self, patches, name, synset):
     """ Similar to add, except that it adds multiple patches for the same image.
@@ -328,12 +337,13 @@ class MemoryBuffer(Cache):
       self.__storage[location] = np.transpose(patch, (2, 0, 1))
       patch_locations.append(location)
 
-    self.__increment_fill_index()
 
     unique_identifier = "%s_%s" % (synset, name)
     self.__image_indices[unique_identifier] = patch_locations
 
-    self.__labels.append(synset)
+    self.__labels[self.__label_fill_index] = synset
+
+    self.__increment_fill_index()
 
   def get(self, synset, name):
     """ Gets an image that was added to the buffer. If there are multiple
@@ -377,8 +387,14 @@ class MemoryBuffer(Cache):
     Returns:
       The batch data, and label data. """
     end_index = self.__batch_index + self.__batch_size * self.__num_patches
+    logger.debug("Getting batch %d:%d." % (self.__batch_index, end_index))
     batch = self.__storage[self.__batch_index:end_index]
-    labels = self.__labels[self.__batch_index:end_index]
+
+    # We only have one label, even if we have multiple patches.
+    end_labels = self.__label_batch_index + self.__batch_size
+    logger.debug("Getting batch labels: %d:%d." % (self.__label_batch_index,
+                                                   end_labels))
+    labels = self.__labels[self.__label_batch_index:end_labels]
 
     self.__increment_batch_index()
 
