@@ -460,17 +460,20 @@ class _Dataset(object):
 
         logger.info("Removing bad image %s, %s" % (wnid, url))
 
-        self.__images.remove((wnid, url))
-        to_remove.append((wnid, url))
+        # Because we keep running downloader processes in the background through
+        # multiple calls to get_random_batch, it's possible that we could try to
+        # remove something twice.
+        if (wnid, url) in self.__images:
+          self.__images.remove((wnid, url))
+          to_remove.append((wnid, url))
+        else:
+          logger.debug("Item already removed: %s" % (wnid))
 
         # Load a new image to replace it.
         self.__load_random_image()
 
-      more_jobs, downloaded = self._download_manager.update()
+      _, downloaded = self._download_manager.update()
       successfully_downloaded += downloaded
-      if not more_jobs:
-        # No more images are queued for download.
-        return
 
       time.sleep(0.2)
 
@@ -530,7 +533,7 @@ class _TrainingDataset(_Dataset):
 
     self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
                                           channels=3)
-    self._download_manager = downloader.DownloadManager(200,
+    self._download_manager = downloader.DownloadManager(90,
         self._cache, self._mem_buffer)
 
 
@@ -552,5 +555,5 @@ class _TestingDataset(_Dataset):
     # We need 10x the buffer space to store the extra patches.
     self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
                                           channels=3, num_patches=10)
-    self._download_manager = downloader.DownloadManager(200,
+    self._download_manager = downloader.DownloadManager(90,
         self._cache, self._mem_buffer, all_patches=True)

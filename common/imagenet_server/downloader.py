@@ -73,7 +73,7 @@ class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
 
   def __init__(self, process_limit, disk_cache, mem_buffer,
-               all_patches=False, timeout=15):
+               all_patches=False, timeout=90):
     """
     Args:
       process_limit: Maximum number of downloads we can run at one time.

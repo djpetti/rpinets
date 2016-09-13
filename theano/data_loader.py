@@ -188,7 +188,8 @@ class Ilsvrc12(Loader):
     # This is how we'll actually get images.
     self.__image_getter = image_getter.FilteredImageGetter(ILSVRC12_URLS,
                                                            CACHE_LOCATION,
-                                                           self.__buffer_size)
+                                                           self.__buffer_size,
+                                                           preload_batches=5)
     # Lock that we use to make sure we are only getting one batch at a time.
     self.__image_getter_lock = threading.Lock()
 
@@ -261,6 +262,7 @@ class Ilsvrc12(Loader):
     """ Loads the next batch of testing data from the Imagenet backend. """
     self.__testing_buffer, labels = \
         self.__image_getter.get_random_test_batch()
+    print "Got raw labels: %s" % (labels)
 
     # Convert labels.
     self.__testing_labels = self.__convert_labels_to_ints(labels)
