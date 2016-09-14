@@ -6,7 +6,6 @@ import collections
 import logging
 import multiprocessing
 import random
-import signal
 import time
 
 import data_augmentation
@@ -48,10 +47,6 @@ class DownloaderProcess(multiprocessing.Process):
 
     # Save the image to the queue.
     logger.debug("Saving image: %s_%s" % (self.__synset, self.__number))
-    # Defer acting on a terminate signal until after the queue call. (Which can
-    # block, but won't indefinitely as long as update() is being called
-    # regularly.)
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
     self.__image_queue.put((self.__synset, self.__number, self.__url, image,
                             patches))
 
@@ -73,19 +68,18 @@ class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
 
   def __init__(self, process_limit, disk_cache, mem_buffer,
-               all_patches=False, timeout=90):
+               all_patches=False):
     """
     Args:
       process_limit: Maximum number of downloads we can run at one time.
       disk_cache: DiskCache to save downloaded images to.
       mem_buffer: MemoryBuffer to save downloaded images to.
       all_patches: Whether to save all the patches, or just pick one at random.
-      timeout: How long downloader processes can run before we terminate them. """
+      """
     self.__process_limit = process_limit
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
     self.__all_patches = all_patches
-    self.__timeout = timeout
 
     # Downloads that are waiting to start.
     self.__download_queue = collections.deque()
@@ -93,8 +87,6 @@ class DownloadManager(object):
     self.__image_queue = multiprocessing.Queue()
     # Set of failed downloads.
     self.__failures = set([])
-    # Set of downloads that were terminated.
-    self.__terminated = set([])
 
   def download_new(self, synset, number, url):
     """ Registers a new image to be downloaded.
@@ -116,16 +108,6 @@ class DownloadManager(object):
       last call to update. """
     downloaded = 0
 
-    # Check for any download processes that have taken too long.
-    for process in multiprocessing.active_children():
-      if (time.time() - process.get_start_time()) > self.__timeout:
-        logger.warning("Terminating downloader process that took too long.")
-        if process.get_info() not in self.__terminated:
-          process.terminate()
-          # Add it to the failures list, because it counts.
-          self.__failures.add(process.get_info())
-          self.__terminated.add(process.get_info())
-
     processes = True
     while len(multiprocessing.active_children()) < self.__process_limit:
       # We're free to add more processes.
@@ -145,10 +127,6 @@ class DownloadManager(object):
     while not self.__image_queue.empty():
       synset, name, url, image, patches = self.__image_queue.get()
 
-      if (synset, name, url) in self.__terminated:
-        # If it was terminated, this was already reported as a failure.
-        continue
-
       if image is None:
         # Download failed.
         self.__failures.add((synset, name, url))
@@ -166,9 +144,6 @@ class DownloadManager(object):
 
       downloaded += 1
 
-    if not (processes or data):
-      # We're done downloading everything, so we can clear the terminated set.
-      self.__terminated = set([])
     return (processes or data), downloaded
 
   def wait_for_downloads(self):
