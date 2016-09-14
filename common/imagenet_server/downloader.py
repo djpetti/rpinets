@@ -15,76 +15,69 @@ import images
 logger = logging.getLogger(__name__)
 
 
+# Number of worker processes we will use.
+WORKER_LIMIT = 100
+
+
 class DownloaderProcess(multiprocessing.Process):
   """ A process that downloads a single image and exits. """
-  def __init__(self, synset, number, url, image_queue,
-               *args, **kwargs):
+  def __init__(self, command_queue, image_queue, *args, **kwargs):
     """ Args:
-      synset: The synset of the image to download.
-      number: The number of the image in the synset.
-      url: The URL to download the image from.
+      command_queue: Queue that we read download commands from.
       image_queue: Queue that we write image information onto. """
     super(DownloaderProcess, self).__init__(*args, **kwargs)
 
-    self.__synset = synset
-    self.__number = number
-    self.__url = url
+    self.__command_queue = command_queue
     self.__image_queue = image_queue
 
   def run(self):
+    """ Runs the process. """
     logger.debug("Starting downloader process.")
 
+    while True:
+      synset, number, url = self.__command_queue.get()
+
+      self.__download_image(synset, number, url)
+
+  def __download_image(self, synset, number, url):
+    """ Downloads a single image.
+    Args:
+      synset: The image synset.
+      number: The image number.
+      url: The image url. """
+    logger.debug("Downloading new image: %s_%s" % (synset, number))
+
     # Download the image.
-    image = images.download_image(self.__url, keep_color=True)
+    image = images.download_image(url, keep_color=True)
     if image is None:
-      logger.warning("Failed to download %s." % (self.__url))
-      self.__image_queue.put((self.__synset, self.__number, self.__url, None,
-                              None))
+      logger.warning("Failed to download %s." % (url))
+      self.__image_queue.put((synset, number, url, None, None))
       return
 
     # We should choose a patch here before it gets put in the buffer.
     patches = data_augmentation.extract_patches(image)
 
     # Save the image to the queue.
-    logger.debug("Saving image: %s_%s" % (self.__synset, self.__number))
-    self.__image_queue.put((self.__synset, self.__number, self.__url, image,
+    logger.debug("Saving image: %s_%s" % (synset, number))
+    self.__image_queue.put((synset, number, url, image,
                             patches))
-
-  def start(self, *args, **kwargs):
-    self.__start_time = time.time()
-
-    super(DownloaderProcess, self).start(*args, **kwargs)
-
-  def get_start_time(self):
-    """ Returns: The time at which this process was started. """
-    return self.__start_time
-
-  def get_info(self):
-    """ Returns: Image synset, number and url. """
-    return self.__synset, self.__number, self.__url
 
 
 class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
 
-  def __init__(self, process_limit, disk_cache, mem_buffer,
+  def __init__(self, disk_cache, mem_buffer,
                all_patches=False):
     """
     Args:
-      process_limit: Maximum number of downloads we can run at one time.
       disk_cache: DiskCache to save downloaded images to.
       mem_buffer: MemoryBuffer to save downloaded images to.
       all_patches: Whether to save all the patches, or just pick one at random.
       """
-    self.__process_limit = process_limit
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
     self.__all_patches = all_patches
 
-    # Downloads that are waiting to start.
-    self.__download_queue = collections.deque()
-    # Queue other processes use to communicate image data.
-    self.__image_queue = multiprocessing.Queue()
     # Set of failed downloads.
     self.__failures = set([])
 
@@ -95,37 +88,19 @@ class DownloadManager(object):
       number: The image number in the synset.
       url: The url of the image. """
     # Add a new download.
-    download_process = DownloaderProcess(synset, number, url,
-                                         self.__image_queue)
-    self.__download_queue.append(download_process)
+    _command_queue.put((synset, number, url))
 
   def update(self):
     """ Adds any new processes, and cleans up any old ones. Should be called
     periodically.
     Returns:
-      True if there are still more downloads pending, False otherwise, as well
-      as the number of new images that were successfully downloaded since the
+      The number of new images that were successfully downloaded since the
       last call to update. """
     downloaded = 0
 
-    processes = True
-    while len(multiprocessing.active_children()) < self.__process_limit:
-      # We're free to add more processes.
-      if not len(self.__download_queue):
-        if not multiprocessing.active_children():
-          # Nothing more to download.
-          processes = False
-        break
-
-      new_process = self.__download_queue.popleft()
-      new_process.start()
-
     # Read from the images queue.
-    data = True
-    if self.__image_queue.empty():
-      data = False
-    while not self.__image_queue.empty():
-      synset, name, url, image, patches = self.__image_queue.get()
+    while not _image_queue.empty():
+      synset, name, url, image, patches = _image_queue.get()
 
       if image is None:
         # Download failed.
@@ -144,7 +119,7 @@ class DownloadManager(object):
 
       downloaded += 1
 
-    return (processes or data), downloaded
+    return downloaded
 
   def wait_for_downloads(self):
     """ Waits until all the downloads are finished, basically by calling update
@@ -162,3 +137,16 @@ class DownloadManager(object):
     failures = list(self.__failures)
     self.__failures = set([])
     return failures
+
+
+# These processes do not need any internal state copied, so we create them at
+# module load time.
+
+# Queue other processes use to communicate image data.
+_image_queue = multiprocessing.Queue()
+# Queue we use to send commands to other processes.
+_command_queue = multiprocessing.Queue()
+
+for i in range(0, WORKER_LIMIT):
+  worker = DownloaderProcess(_command_queue, _image_queue)
+  worker.start()

@@ -1,6 +1,10 @@
 """ Manages downloading and storing the MNIST dataset. """
 
 
+# This forks processes, so we want to import it as soon as possible, when there
+# is as little memory as possible being used.
+from common.imagenet_server import cache, image_getter
+
 import cPickle as pickle
 import gzip
 import json
@@ -16,8 +20,6 @@ import numpy as np
 
 import theano
 import theano.tensor as TT
-
-from common.imagenet_server import cache, image_getter
 
 
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"

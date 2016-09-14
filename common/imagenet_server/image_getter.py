@@ -472,7 +472,7 @@ class _Dataset(object):
         # Load a new image to replace it.
         self.__load_random_image()
 
-      _, downloaded = self._download_manager.update()
+      downloaded = self._download_manager.update()
       successfully_downloaded += downloaded
 
       time.sleep(0.2)
@@ -533,8 +533,8 @@ class _TrainingDataset(_Dataset):
 
     self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
                                           channels=3)
-    self._download_manager = downloader.DownloadManager(90,
-        self._cache, self._mem_buffer)
+    self._download_manager = downloader.DownloadManager(self._cache,
+                                                        self._mem_buffer)
 
 
 class _TestingDataset(_Dataset):
@@ -555,5 +555,6 @@ class _TestingDataset(_Dataset):
     # We need 10x the buffer space to store the extra patches.
     self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
                                           channels=3, num_patches=10)
-    self._download_manager = downloader.DownloadManager(90,
-        self._cache, self._mem_buffer, all_patches=True)
+    self._download_manager = downloader.DownloadManager(self._cache,
+                                                        self._mem_buffer,
+                                                        all_patches=True)

@@ -1,13 +1,36 @@
 #!/usr/bin/python
 
-import json
 import logging
+
+def _configure_logging():
+  """ Configure logging handlers. """
+  # Configure root logger.
+  root = logging.getLogger()
+  root.setLevel(logging.DEBUG)
+  file_handler = logging.FileHandler("/home/theano/run_tests.log")
+  file_handler.setLevel(logging.DEBUG)
+  stream_handler = logging.StreamHandler()
+  stream_handler.setLevel(logging.WARNING)
+  formatter = logging.Formatter("%(name)s@%(asctime)s: " +
+      "[%(levelname)s] %(message)s")
+  file_handler.setFormatter(formatter)
+  stream_handler.setFormatter(formatter)
+  root.addHandler(file_handler)
+  root.addHandler(stream_handler)
+
+# Some modules need a logger to be configured immediately.
+_configure_logging()
+
+# This forks a lot of processes, so we want to import it as soon as possible,
+# when there is as little memory as possible in use.
+import data_loader
+
+import json
 import os
 import time
 
 from alexnet import AlexNet
 from simple_lenet import LeNetClassifier
-import data_loader
 import layers
 
 from six.moves import cPickle as pickle
@@ -234,20 +257,6 @@ def evaluate_final_alexnet():
         (average_one, average_five)
 
 def main():
-  # Configure root logger.
-  root = logging.getLogger()
-  root.setLevel(logging.DEBUG)
-  file_handler = logging.FileHandler("/home/theano/run_tests.log")
-  file_handler.setLevel(logging.DEBUG)
-  stream_handler = logging.StreamHandler()
-  stream_handler.setLevel(logging.WARNING)
-  formatter = logging.Formatter("%(name)s@%(asctime)s: " +
-      "[%(levelname)s] %(message)s")
-  file_handler.setFormatter(formatter)
-  stream_handler.setFormatter(formatter)
-  root.addHandler(file_handler)
-  root.addHandler(stream_handler)
-
   elapsed, speed = run_imagenet_test()
   results = {"imagenet": {"elapsed": elapsed, "speed": speed}}
   print "results=%s" % (json.dumps(results))
