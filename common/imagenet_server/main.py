@@ -1,15 +1,9 @@
 #!/usr/bin/python
 
 import logging
-import os
 
-import cv2
-
-import numpy as np
-
-import image_getter
-
-def main():
+def _configure_logging():
+  """ Configure logging handlers. """
   # Configure root logger.
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
@@ -24,13 +18,25 @@ def main():
   root.addHandler(file_handler)
   root.addHandler(stream_handler)
 
-  root.info("Starting...")
+# Some modules need logging configured immediately to work.
+_configure_logging()
+
+import os
+
+import cv2
+
+import numpy as np
+
+import image_getter
+
+def main():
+  logging.info("Starting...")
 
   getter = image_getter.FilteredImageGetter("ilsvrc12_urls.txt", "image_cache",
                                             10, preload_batches=2)
 
   for x in range(0, 3):
-    batch = getter.get_random_test_batch()
+    batch = getter.get_random_train_batch()
 
     print batch[1]
     print len(batch[1])
