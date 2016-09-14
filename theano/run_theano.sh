@@ -7,4 +7,5 @@ if [ "$#" -ne 1 ] || ! [ -d "$1" ]; then
 fi
 
 sudo nvidia-docker run --rm -ti -v "$(dirname "`pwd`")":/home/theano/rpinets \
-    -v "$1":/home/theano/training_data --net=host djpetti/rpinets-theano /bin/bash
+    -v "$1":/home/theano/training_data --net=host \
+    djpetti/rpinets-theano:imagenet_server /bin/bash
