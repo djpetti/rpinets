@@ -9,6 +9,7 @@ import socket
 import ssl
 import urllib2
 import urlparse
+import time
 
 import cv2
 
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 BAD_IMAGES_DIR = "error_images"
 # How close an image has to be to a known bad image to throw it out.
 ERROR_IMAGE_THRESH = 1.0
+# Minimum number of bytes we need to consistently read every second before we
+# give up.
+MIN_DOWNLOAD_RATE = 512
 
 
 def _load_error_images():
@@ -96,11 +100,32 @@ def download_image(url, keep_color=False):
     logger.warning("Got Flickr 'photo unavailable' error.")
     return None
 
-  try:
-    raw_data = response.read()
-  except (socket.timeout, ssl.SSLError) as e:
-    logger.warning("Image download failed with '%s'." % (e))
-    return None
+  raw_data = ""
+  slow_cycles = 0
+  while True:
+    start_time = time.time()
+    try:
+      new_data = response.read(512)
+    except (socket.timeout, ssl.SSLError) as e:
+      logger.warning("Image download failed with '%s'." % (e))
+      return None
+    elapsed = time.time() - start_time
+
+    if not new_data:
+      # We're done reading the response.
+      break
+
+    raw_data += new_data
+
+    if 512.0 / elapsed < MIN_DOWNLOAD_RATE:
+      logger.debug("Downloading image too slowly.")
+      slow_cycles += 1
+
+      if slow_cycles > 5:
+        logger.warning("Aborting download due to slowness: %u" % (url))
+        return None
+    else:
+      slow_cycles = 0
 
   image = np.asarray(bytearray(raw_data), dtype="uint8")
   if keep_color:
