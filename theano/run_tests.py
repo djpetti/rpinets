@@ -86,7 +86,7 @@ def run_imagenet_test():
   Returns:
     A tuple containing the total elapsed time, and the average number of
     training iterations per second. """
-  batch_size = 128
+  batch_size = 256
   # How many batches to have loaded into VRAM at once.
   load_batches = 1
 
@@ -140,20 +140,14 @@ def run_imagenet_test():
 
   while iterations < 800000:
     if iterations % 50 == 0:
-      # FIXME (danielp): Another hack for dealing with VRAM storage. We test in
-      # five parts, with each set of batches loaded individually.
       if not test:
         # Load new test data.
         test = data.get_test_set()
       complete_test = test[0].get_value()
       cpu_labels = data.get_non_shared_test_set()
 
-      for i in range(0, 4):
-        print cpu_labels
-        test[0].set_value(complete_test[(i * batch_size * 2): \
-                                     ((i + 1) * batch_size * 2)])
-        network.test_part(test_batch_index, cpu_labels)
-      test[0].set_value(complete_test[(4 * batch_size * 2):(5 * batch_size * 2)])
+      print cpu_labels
+      test[0].set_value(complete_test)
       top_one, top_five = network.test(test_batch_index, cpu_labels)
       test = None
       print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
