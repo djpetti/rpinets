@@ -412,7 +412,7 @@ class _Dataset(object):
 
     logger.info("Have %d total images in database." % (len(self.__images)))
 
-  def __pick_random_image(self):
+  def _pick_random_image(self):
     """ Picks a random image from our database.
     Returns:
       wnid and url, and key of the image in the images map. """
@@ -421,7 +421,7 @@ class _Dataset(object):
 
     if wnid in self.__already_picked:
       # This is a duplicate, pick another.
-      return self.__pick_random_image()
+      return self._pick_random_image()
     self.__already_picked.add(wnid)
 
     return wnid, url
@@ -441,7 +441,7 @@ class _Dataset(object):
     logger.debug("Need to start downloading %d additional images." %
                  (need_images))
     for _ in range(0, need_images):
-      self.__load_random_image()
+      self._load_random_image()
     self.__num_downloading += need_images
 
     # Wait for 1 batch worth of the downloads to complete,
@@ -470,7 +470,7 @@ class _Dataset(object):
           logger.debug("Item already removed: %s" % (wnid))
 
         # Load a new image to replace it.
-        self.__load_random_image()
+        self._load_random_image()
 
       downloaded = self._download_manager.update()
       successfully_downloaded += downloaded
@@ -480,21 +480,21 @@ class _Dataset(object):
     self.__num_downloading -= self._batch_size
     return self._mem_buffer.get_batch(), to_remove
 
-  def __load_random_image(self):
+  def _load_random_image(self):
     """ Loads a random image from either the cache or the internet. If loading
     from the internet, it adds it to the download manager, otherwise, it adds
     them to the memory buffer. """
-    wnid, url = self.__pick_random_image()
+    wnid, url = self._pick_random_image()
     synset, number = wnid.split("_")
 
-    image = self.__get_cached_image(synset, number)
+    image = self._get_cached_image(synset, number)
     if image is None:
       # We have to download the image instead.
       self._download_manager.download_new(synset, number, url)
     else:
       self._mem_buffer.add(image, number, synset)
 
-  def __get_cached_image(self, synset, image_number):
+  def _get_cached_image(self, synset, image_number):
     """ Checks if an image is in the cache, and returns it.
     Args:
       synset: The synset of the image.
@@ -558,3 +558,31 @@ class _TestingDataset(_Dataset):
     self._download_manager = downloader.DownloadManager(self._cache,
                                                         self._mem_buffer,
                                                         all_patches=True)
+
+  def _load_random_image(self):
+    """ See superclass documentation. This override is necessary to deal with
+    multiple patches. """
+    wnid, url = self._pick_random_image()
+    synset, number = wnid.split("_")
+
+    patches = self._get_cached_image(synset, number)
+    if patches is None:
+      # We have to download the image instead.
+      self._download_manager.download_new(synset, number, url)
+    else:
+      self._mem_buffer.add_patches(patches, number, synset)
+
+  def _get_cached_image(self, synset, image_number):
+    """ See superclass documentation. This override is necessary to deal with
+    multiple patches. """
+    # First check in the cache for the image.
+    cached_image = self._cache.get(synset, image_number)
+    if cached_image is not None:
+      # We had a cached copy, so we're done.
+      logger.debug("Found image in cache: %s_%s" % (synset, image_number))
+
+      # Extract patches.
+      return data_augmentation.extract_patches(cached_image)
+
+    return None
+
