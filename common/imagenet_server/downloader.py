@@ -35,36 +35,40 @@ class DownloaderProcess(multiprocessing.Process):
     logger.debug("Starting downloader process.")
 
     while True:
-      synset, number, url = self.__command_queue.get()
+      req_id, synset, number, url = self.__command_queue.get()
 
-      self.__download_image(synset, number, url)
+      self.__download_image(req_id, synset, number, url)
 
-  def __download_image(self, synset, number, url):
+  def __download_image(self, req_id, synset, number, url):
     """ Downloads a single image.
     Args:
+      req_id: The ID of the requesting download manager.
       synset: The image synset.
       number: The image number.
       url: The image url. """
-    logger.debug("Downloading new image: %s_%s" % (synset, number))
+    logger.debug("Downloading image for %d: %s_%s" % (req_id, synset, number))
 
     # Download the image.
     image = images.download_image(url, keep_color=True)
     if image is None:
       logger.warning("Failed to download %s." % (url))
-      self.__image_queue.put((synset, number, url, None, None))
+      self.__image_queue.put((req_id, synset, number, url, None, None))
       return
 
-    # We should choose a patch here before it gets put in the buffer.
+    # Extract the patches to send back.
     patches = data_augmentation.extract_patches(image)
 
     # Save the image to the queue.
-    logger.debug("Saving image: %s_%s" % (synset, number))
-    self.__image_queue.put((synset, number, url, image,
+    logger.debug("Sending image for %d: %s_%s" % (req_id, synset, number))
+    self.__image_queue.put((req_id, synset, number, url, image,
                             patches))
 
 
 class DownloadManager(object):
   """ Deals with managing and dispatching downloads. """
+
+  # Counter that gives each instance a unique id.
+  _current_id = 0
 
   def __init__(self, disk_cache, mem_buffer,
                all_patches=False):
@@ -74,12 +78,18 @@ class DownloadManager(object):
       mem_buffer: MemoryBuffer to save downloaded images to.
       all_patches: Whether to save all the patches, or just pick one at random.
       """
+    self.__id = DownloadManager._current_id
+    DownloadManager._current_id += 1
+
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
     self.__all_patches = all_patches
 
     # Set of failed downloads.
     self.__failures = set([])
+
+    # Create a new queue for us.
+    _rejected_queue[self.__id] = collections.deque()
 
   def download_new(self, synset, number, url):
     """ Registers a new image to be downloaded.
@@ -88,7 +98,7 @@ class DownloadManager(object):
       number: The image number in the synset.
       url: The url of the image. """
     # Add a new download.
-    _command_queue.put((synset, number, url))
+    _command_queue.put((self.__id, synset, number, url))
 
   def update(self):
     """ Adds any new processes, and cleans up any old ones. Should be called
@@ -99,8 +109,27 @@ class DownloadManager(object):
     downloaded = 0
 
     # Read from the images queue.
-    while not _image_queue.empty():
-      synset, name, url, image, patches = _image_queue.get()
+    while not _image_queue.empty() or len(_rejected_queue[self.__id]):
+      synset = None
+      name = None
+      url = None
+      image = None
+      patches = None
+
+      if len(_rejected_queue[self.__id]):
+        # Get messages that other DownloadManagers read but that are intended
+        # for us.
+        synset, name, url, image, patches = _rejected_queue[self.__id].pop()
+
+      else:
+        # Read from the main queue.
+        req_id, synset, name, url, image, patches = _image_queue.get()
+
+        if req_id != self.__id:
+          # This is for a different DownloadManager.
+          logger.debug("%d: Got message for id %d." % (self.__id, req_id))
+          _rejected_queue[req_id].appendleft((synset, name, url, image, patches))
+          continue
 
       if image is None:
         # Download failed.
@@ -145,7 +174,10 @@ class DownloadManager(object):
 # Queue other processes use to communicate image data.
 _image_queue = multiprocessing.Queue()
 # Queue we use to send commands to other processes.
-_command_queue = multiprocessing.Queue()
+_command_queue = multiprocessing.Queue(1500)
+# When we read images that belong to the wrong downloader instance, this is
+# where they go.
+_rejected_queue = {}
 
 for i in range(0, WORKER_LIMIT):
   worker = DownloaderProcess(_command_queue, _image_queue)
