@@ -36,6 +36,9 @@ import layers
 from six.moves import cPickle as pickle
 
 
+logger = logging.getLogger(__name__)
+
+
 def run_mnist_test():
   """ Runs the a test that trains a CNN to classify MNIST digits.
   Returns:
@@ -163,11 +166,13 @@ def run_imagenet_test():
 
   while iterations < 800000:
     if iterations % 50 == 0:
+      logger.info("Loading test data...")
       if not test:
         # Load new test data.
         test = data.get_test_set()
       complete_test = test[0].get_value()
       cpu_labels = data.get_non_shared_test_set()
+      logger.info("Finished loading test data.")
 
       print cpu_labels
       test[0].set_value(complete_test)
@@ -194,7 +199,9 @@ def run_imagenet_test():
     # Swap in new data if we need to.
     if (train_batch_index + 1) * batch_size > data.get_train_set_size():
       train_batch_index = 0
+      logging.info("Getting train set.")
       train = data.get_train_set()
+      logging.info("Got train set.")
     # Swap in new data if we need to.
     if (test_batch_index + 1) * batch_size > data.get_test_set_size():
       test_batch_index = 0

@@ -289,6 +289,7 @@ class Ilsvrc12(Loader):
       self.__image_getter_lock.acquire()
       logger.info("Loading next training batch from imagenet...")
       self.__load_next_training_batch()
+      logger.info("Done loading next training batch.")
 
       self.__image_getter_lock.release()
       # Allow the main thread to use what we loaded.
@@ -303,6 +304,7 @@ class Ilsvrc12(Loader):
       self.__image_getter_lock.acquire()
       logger.info("Loading next testing batch from imagenet...")
       self.__load_next_testing_batch()
+      logger.info("Done loading next testing batch.")
 
       self.__image_getter_lock.release()
       # Allow the main thread to use what we loaded.
