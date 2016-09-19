@@ -32,8 +32,8 @@ import image_getter
 def main():
   logging.info("Starting...")
 
-  synsets = ["n01440764", "n02119789"]
-  getter = image_getter.SynsetListImageGetter(synsets, "synsets", "image_cache",
+  getter = image_getter.SynsetFileImageGetter("use_synsets.txt", "synsets",
+                                              "image_cache",
                                               10, preload_batches=2)
 
   for x in range(0, 3):
