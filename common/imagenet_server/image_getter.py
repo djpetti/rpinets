@@ -1,5 +1,6 @@
 import json
 import logging
+import operator
 import os
 import random
 import time
@@ -89,7 +90,7 @@ class ImageGetter(object):
                                    download_words=download_words)
     self.__batch_size = batch_size
 
-    self.__synset_location = synset_location
+    self._synset_location = synset_location
 
     self._synsets = {}
     self._populate_synsets()
@@ -110,11 +111,11 @@ class ImageGetter(object):
 
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
-    if not os.path.exists(self.__synset_location):
-      os.mkdir(self.__synset_location)
+    if not os.path.exists(self._synset_location):
+      os.mkdir(self._synset_location)
 
-    loaded = self.__load_synsets()
-    self.__get_image_list(loaded)
+    loaded = self._load_synsets()
+    self._get_image_list(loaded)
 
   def __split_train_test_images(self, test_percentage):
     """ Chooses the images to use in the training set and testing set.
@@ -140,7 +141,7 @@ class ImageGetter(object):
 
     return train, test
 
-  def __get_image_list(self, loaded):
+  def _get_image_list(self, loaded):
     """ Downloads a comprehensive list of all images available.
     Args:
       loaded: Set of synsets that were already loaded successfully. """
@@ -154,7 +155,12 @@ class ImageGetter(object):
     logger.info("Downloading %d synsets." % (len(synsets)))
     logger.debug("Downloading synsets: %s", synsets)
 
-    # Get the urls for each synset.
+    self._get_synset_urls(synsets)
+
+  def _get_synset_urls(self, synsets):
+    """ Get the image URLs for each synset.
+    Args:
+      synsets: The set of synsets to get URLs for. """
     base_url = \
         "http://www.image-net.org/api/text/" \
         "imagenet.synset.geturls.getmapping?wnid=%s"
@@ -166,15 +172,55 @@ class ImageGetter(object):
       response = urllib2.urlopen(base_url % (synset), timeout=1000)
 
       # Parse the image data.
+      urls = response.read()
+      if "Invalid url!" in urls:
+        raise ValueError("Invalid synset: %s" % (synset))
       mappings, utf_mappings = _parse_url_file(response.read(), get_utf=True)
 
       self._synsets[synset] = mappings
       # Save it for later.
       self.__save_synset(synset, utf_mappings)
 
-  def condense_loaded_synsets(self):
+  def condense_loaded_synsets(self, target_categories, minimum_synset_size):
     """ Using is-a relationships obtained from ImageNet, it combines smaller
-    synsets until only ones that have a sufficient amount of data remain. """
+    synsets until only ones that have a sufficient amount of data remain.
+    Args:
+      target_categories: The target number of categories that we want.
+      minimum_synset_size: The minimum size of a particular synset. """
+    def merge_with_superset(synset):
+      """ Merges a synset with its superset.
+      Returns:
+        The name of the superset if the merge was successful, or None if it
+        couldn't find a superset. """
+      if synset not in mappings:
+        return None
+
+      # Combine with superset.
+      superset = mappings[synset]
+
+      logger.info("Merging %s with %s." % (synset, superset))
+
+      # It looks like synsets don't by default include sub-synsets.
+      self._synsets[superset].extend(self.__synsets[synset])
+      self.__synset_sizes[superset] += self.__synset_sizes[synset]
+      logger.debug("New superset size: %d." % \
+                  (self.__synset_sizes[superset]))
+
+      return superset
+
+    def find_leaves(mappings):
+      """ Given a dictionary of is-a relationships, it finds the leaves of the
+      hierarchy.
+      Args:
+        mappings: Dict mapping subsets to supersets.
+      Returns:
+        Set of all leaf nodes. """
+      leaves = set(mappings.keys())
+      for superset in mappings.items():
+        leaves.discard(superset)
+
+      return leaves
+
     logger.info("Condensing synsets...")
 
     # First, download the list of is-a relationships.
@@ -185,36 +231,67 @@ class ImageGetter(object):
     # Convert to actual mappings. Here, the keys are a synset, and the values
     # are what that synset is.
     mappings = {}
+    reverse_mappings = {}
     for line in lines:
       if not line:
         # Bad line.
         continue
       sup, sub = line.split()
       mappings[sub] = sup
+      reverse_mappings[sup] = sub
 
-    # Now, go through our synsets and combine any that are too small.
+    # Find the initial leaf nodes.
+    leaves = find_leaves(mappings)
+
+    # Now, go through our synsets and combine any that are too small. We start
+    # from the leaves and work our way up through the structure.
+    while len(leaves):
+      leaf = leaves.pop()
+      if self.__synset_sizes[leaf] < minimum_synset_size:
+        # We need to merge this one.
+        superset = merge_with_superset(leaf)
+
+        # Replace the leaf with its parent, since it's the new leaf now.
+        if superset:
+          leaves.add(superset)
+        else:
+          # In this case, we want to try merging downwards.
+          child = reverse_mappings[leaf]
+          merge_with_superset(child)
+          # Now we still want to be in the leaf nodes set, in case we need to
+          # merge more.
+          leaves.add(leaf)
+          # We also need to update our mappings.
+          grandchild = reverse_mappings[child]
+          reverse_mappings[leaf] = grandchild
+
+          # We want to remove the child though, since it got merged.
+          leaf = child
+
+        # The only way the merge failed is if leaf was actually a root node.
+        # Either way, we need to delete it.
+        logger.info("Deleting %s with size %d." % (leaf, size))
+        self._synsets.pop(leaf)
+        self.__synset_sizes.pop(leaf)
+
+      else:
+        # In this case, just take the parent automatically, since we're done
+        # merging up to that leaf. The parent might be too small, in which case
+        # we'll merge it with its parent.
+        if leaf in mappings:
+          leaves.add(mappings[leaf])
+
     while True:
       sizes_to_remove = []
       for synset, size in self.__synset_sizes.iteritems():
         merged_at_least_one = False
-        if size < self.MINIMUM_SYNSET_SIZE:
-          if synset in mappings:
-            # Combine with superset.
-            superset = mappings[synset]
-            if superset not in self.__synsets:
-              logger.warning("Superset %s is not loaded!" % (superset))
-            else:
-              logger.info("Merging %s with %s." % (synset, superset))
-
-              # It looks like synsets don't by default include sub-synsets.
-              self.__synsets[superset].extend(self.__synsets[synset])
-              self.__synset_sizes[superset] += self.__synset_sizes[synset]
-              logger.debug("New superset size: %d." % \
-                          (self.__synset_sizes[superset]))
+        if size < minimum_synset_size:
+          # Try merging it.
+          merge_with_superset(synset)
 
           # Delete it since it's too small.
           logger.info("Deleting %s with size %d." % (synset, size))
-          self.__synsets.pop(synset)
+          self._synsets.pop(synset)
           # We can't pop items from the dictionary while we're iterating.
           sizes_to_remove.append(synset)
 
@@ -225,39 +302,89 @@ class ImageGetter(object):
 
       if not merged_at_least_one:
         # We're done here.
-        logger.info("Finished merging synsets.")
         break
+
+    if len(self._synsets) <= target_categories:
+      # We're done.
+      logger.info("Ended up with %d synsets." % (len(self._synsets)))
+      return
+
+    # Sort our synsets from smallest to largest.
+    sorted_sizes = sorted(self.__synset_sizes.items(),
+                          key=operator.itemgetter(1))
+    # We do a second pass in order to reach our target number of synsets.
+    synset_index = 0
+    needs_deleting = False
+    while len(self._synsets) > target_categories:
+      # Get the smallest one.
+      synset, size = sorted_sizes[synset_index]
+      synset_index += 1
+
+      # Try merging it.
+      if merge_with_superset(synset):
+        # Delete it.
+        logger.info("Deleting %s with size %d." % (synset, size))
+        self._synsets.pop(synset)
+        self.__synset_sizes.pop(synset)
+
+      if synset_index >= len(sorted_sizes):
+        # We got all the way through without reaching our target.
+        needs_deleting = True
+        break
+
+    if needs_deleting:
+      # At this point, we just delete the smallest ones until we have cut it
+      # down to the proper size.
+      logger.info("Deleting extra synsets.")
+      # They changed, so we have to re-sort now.
+      sorted_sizes = sorted(self.__synset_sizes.items(),
+                            key=operator.itemgetter(1))
+      synset_index = 0
+      while len(self._synsets) > target_categories:
+        synset, size = sorted_sizes[synset_index]
+        synset_index += 1
+
+        logger.info("Deleting %s with size %d." % (synset, size))
+        self._synsets.pop(synset)
+        self.__synset_sizes.pop(synset)
 
   def __save_synset(self, synset, data):
     """ Saves a synset to a file.
     Args:
       synset: The name of the synset.
       data: The data that will be saved in the file. """
-    if not self.__synset_location:
+    if not self._synset_location:
       # We're not saving synsets.
       return
 
     logger.info("Saving synset: %s" % (synset))
 
-    synset_path = os.path.join(self.__synset_location, "%s.json" % (synset))
+    synset_path = os.path.join(self._synset_location, "%s.json" % (synset))
     synset_file = open(synset_path, "w")
     json.dump(data, synset_file)
     synset_file.close()
 
-  def __load_synsets(self):
+  def _load_synsets(self, load_synsets=None):
     """ Loads synsets from a file.
+    Args:
+      load_synsets: If specified, this should be a set of synset names. It will
+                    then only load synsets that are in this set.
     Returns:
       A set of the synsets that were loaded successfully. """
     loaded = set([])
     loaded_text = []
     logger.info("Loading synsets...")
 
-    for path in os.listdir(self.__synset_location):
+    for path in os.listdir(self._synset_location):
       if path.endswith(".json"):
         # Load synset from file.
         synset_name = path[:-5]
+        if load_synsets and synset_name not in load_synsets:
+          # We don't have to load this one.
+          continue
+
         logger.debug("Loading synset %s." % (synset_name))
-        full_path = os.path.join(self.__synset_location, path)
+        full_path = os.path.join(self._synset_location, path)
 
         synset_file = file(full_path)
         loaded_text.append((synset_name, synset_file.read()))
@@ -285,7 +412,7 @@ class ImageGetter(object):
 
       # Load the proper file.
       file_name = "%s.json" % (synset)
-      file_path = os.path.join(self.__synset_location, file_name)
+      file_path = os.path.join(self._synset_location, file_name)
       file_object = file(file_path)
       synset_data = json.load(file_object)
       file_object.close()
@@ -320,6 +447,33 @@ class ImageGetter(object):
     self.__remove_bad_images(failures)
 
     return images
+
+
+class SynsetListImageGetter(ImageGetter):
+  """ Works like an ImageGetter, but only loads images from a predefined set of
+  synsets. """
+
+  def __init__(self, synsets, *args, **kwargs):
+    """ Args:
+      synsets: The list of synsets to load images from. """
+    self.__synset_names = set(synsets)
+
+    super(SynsetListImageGetter, self).__init__(*args, **kwargs)
+
+  def _populate_synsets(self):
+    """ See documentation for superclass method. """
+    if not os.path.exists(self._synset_location):
+      os.mkdir(self._synset_location)
+
+    loaded = self._load_synsets(load_synsets=self.__synset_names)
+    self._get_image_list(loaded)
+
+  def _get_image_list(self, loaded):
+    """ See documentation for superclass method. """
+    # Instead of downloading the complete list, we're just going to inject our
+    # synsets here.
+    synsets = self.__synset_names - loaded
+    self._get_synset_urls(synsets)
 
 
 class FilteredImageGetter(ImageGetter):

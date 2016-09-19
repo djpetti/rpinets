@@ -32,8 +32,9 @@ import image_getter
 def main():
   logging.info("Starting...")
 
-  getter = image_getter.FilteredImageGetter("ilsvrc12_urls.txt", "image_cache",
-                                            10, preload_batches=2)
+  synsets = ["n01440764", "n02119789"]
+  getter = image_getter.SynsetListImageGetter(synsets, "synsets", "image_cache",
+                                              10, preload_batches=2)
 
   for x in range(0, 3):
     batch = getter.get_random_train_batch()
