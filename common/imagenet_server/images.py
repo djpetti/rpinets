@@ -106,7 +106,7 @@ def download_image(url, keep_color=False):
     start_time = time.time()
     try:
       new_data = response.read(512)
-    except (socket.timeout, ssl.SSLError) as e:
+    except (socket.timeout, ssl.SSLError, socket.error) as e:
       logger.warning("Image download failed with '%s'." % (e))
       return None
     elapsed = time.time() - start_time
