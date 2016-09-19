@@ -196,9 +196,10 @@ class Ilsvrc12(Loader):
     self.__testing_labels = None
     # This is how we'll actually get images.
     self.__image_getter = \
-        image_getter.FilteredImageGetter(ILSVRC12_URLS, CACHE_LOCATION,
-                                         self.__buffer_size, preload_batches=5,
-                                         load_datasets_from=DATASET_LOCATION)
+        image_getter.SynsetFileImageGetter(ILSVRC16_SYNSETS, SYNSET_LOCATION,
+                                           CACHE_LOCATION, self.__buffer_size,
+                                           preload_batches=5,
+                                           load_datasets_from=DATASET_LOCATION)
     # Lock that we use to make sure we are only getting one batch at a time.
     self.__image_getter_lock = threading.Lock()
 
