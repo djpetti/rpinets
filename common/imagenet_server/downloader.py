@@ -2,6 +2,7 @@
 """
 
 
+from Queue import Empty
 import collections
 import logging
 import multiprocessing
@@ -109,27 +110,39 @@ class DownloadManager(object):
     downloaded = 0
 
     # Read from the images queue.
-    while not _image_queue.empty() or len(_rejected_queue[self.__id]):
+    while True:
+      req_id = self.__id
       synset = None
       name = None
       url = None
       image = None
       patches = None
 
+      more_data = False
       if len(_rejected_queue[self.__id]):
         # Get messages that other DownloadManagers read but that are intended
         # for us.
         synset, name, url, image, patches = _rejected_queue[self.__id].pop()
+        more_data = True
 
       else:
         # Read from the main queue.
-        req_id, synset, name, url, image, patches = _image_queue.get()
+        try:
+          req_id, synset, name, url, image, patches = _image_queue.get_nowait()
+          more_data = True
+        except Empty:
+          # Nothing more to read.
+          pass
 
         if req_id != self.__id:
           # This is for a different DownloadManager.
           logger.debug("%d: Got message for id %d." % (self.__id, req_id))
           _rejected_queue[req_id].appendleft((synset, name, url, image, patches))
           continue
+
+      if not more_data:
+        # Nothing more to read.
+        break
 
       if image is None:
         # Download failed.
