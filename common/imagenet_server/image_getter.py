@@ -172,10 +172,9 @@ class ImageGetter(object):
       response = urllib2.urlopen(base_url % (synset), timeout=1000)
 
       # Parse the image data.
-      urls = response.read()
-      if "Invalid url!" in urls:
-        raise ValueError("Invalid synset: %s" % (synset))
       mappings, utf_mappings = _parse_url_file(response.read(), get_utf=True)
+      if not mappings:
+        raise ValueError("Invalid synset: %s" % (synset))
 
       self._synsets[synset] = mappings
       # Save it for later.
@@ -454,8 +453,11 @@ class SynsetListImageGetter(ImageGetter):
   synsets. """
 
   def __init__(self, synsets, *args, **kwargs):
-    """ Args:
+    """
+    Args:
       synsets: The list of synsets to load images from. """
+    logger.debug("Using synsets: %s" % (synsets))
+
     self.__synset_names = set(synsets)
 
     super(SynsetListImageGetter, self).__init__(*args, **kwargs)
@@ -474,6 +476,23 @@ class SynsetListImageGetter(ImageGetter):
     # synsets here.
     synsets = self.__synset_names - loaded
     self._get_synset_urls(synsets)
+
+
+class SynsetFileImageGetter(SynsetListImageGetter):
+  """ Works like an ImageGetter, but only loads images from a predefined list of
+  synsets specified in a file. """
+
+  def __init__(self, synset_path, *args, **kwargs):
+    """
+    Args:
+      synset_path: The path to the file containing a list of synsets, with one
+      synset on each line. """
+    # Parse the file.
+    synset_file = file(synset_path)
+    synsets = [synset.rstrip("\n") for synset in synset_file]
+    synset_file.close()
+
+    super(SynsetFileImageGetter, self).__init__(synsets, *args, **kwargs)
 
 
 class FilteredImageGetter(ImageGetter):
