@@ -25,7 +25,6 @@ import theano.tensor as TT
 
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
-MEAN_FILE = "mean.txt"
 
 # URL list for ILSVRC12.
 ILSVRC12_URLS = "/home/theano/training_data/ilsvrc12_urls.txt"
@@ -222,8 +221,6 @@ class Ilsvrc12(Loader):
     self.__synsets = {}
     self.__current_label = 0
 
-    self.__mean = float(file(MEAN_FILE).read())
-
     # Start the loader threads.
     test_loader_thread = threading.Thread(target=self.__run_test_loader_thread)
     test_loader_thread.start()
@@ -294,7 +291,9 @@ class Ilsvrc12(Loader):
 
     self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
-    self.__training_buffer -= self.__mean
+    mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
+    logger.debug("Training mean: %f" % mean)
+    self.__training_buffer -= mean
 
   def __load_next_testing_batch(self):
     """ Loads the next batch of testing data from the Imagenet backend. """
@@ -314,7 +313,9 @@ class Ilsvrc12(Loader):
 
     self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
-    self.__testing_buffer -= self.__mean
+    mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
+    logger.debug("Testing mean: %f" % mean)
+    self.__testing_buffer -= mean
 
   def __run_train_loader_thread(self):
     """ The main function for the thread to load training data. """
