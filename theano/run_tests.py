@@ -7,7 +7,7 @@ def _configure_logging():
   # Configure root logger.
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
-  file_handler = logging.FileHandler("/home/theano/run_tests.log")
+  file_handler = logging.FileHandler("/job_files/run_tests.log")
   file_handler.setLevel(logging.DEBUG)
   stream_handler = logging.StreamHandler()
   stream_handler.setLevel(logging.WARNING)
