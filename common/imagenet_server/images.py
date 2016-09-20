@@ -18,8 +18,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-
-BAD_IMAGES_DIR = "error_images"
+# The error_images directory should be included in the same location that this
+# file is.
+_this_dir = os.path.dirname(os.path.realpath(__file__))
+BAD_IMAGES_DIR = os.path.join(_this_dir, "error_images")
 # How close an image has to be to a known bad image to throw it out.
 ERROR_IMAGE_THRESH = 1.0
 # Minimum number of bytes we need to consistently read every second before we
