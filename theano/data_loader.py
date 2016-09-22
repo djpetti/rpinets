@@ -280,6 +280,7 @@ class Ilsvrc12(Loader):
     """ Loads the next batch of training data from the Imagenet backend. """
     self.__training_buffer, labels = \
         self.__image_getter.get_random_train_batch()
+    logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__training_buffer)
     self.__training_buffer -= mean
     logger.debug("Training mean: %f" % mean)
@@ -302,7 +303,7 @@ class Ilsvrc12(Loader):
     """ Loads the next batch of testing data from the Imagenet backend. """
     self.__testing_buffer, labels = \
         self.__image_getter.get_random_test_batch()
-    print "Got raw labels: %s" % (labels)
+    logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__testing_buffer)
     logger.debug("Testing mean: %f" % mean)
 
