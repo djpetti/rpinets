@@ -112,9 +112,9 @@ def run_imagenet_test():
   Returns:
     A tuple containing the total elapsed time, and the average number of
     training iterations per second. """
-  batch_size = 256
+  batch_size = 128
   # How many batches to have loaded into VRAM at once.
-  load_batches = 1
+  load_batches = 5
 
   # Learning rate hyperparameters.
   learning_rate = 0.01
