@@ -26,8 +26,10 @@ import theano.tensor as TT
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 
-# URL list for ILSVRC12.
-ILSVRC12_URLS = "/home/theano/training_data/ilsvrc12_urls.txt"
+# Synset list for ILSVRC16.
+ILSVRC16_SYNSETS = "/job_files/ilsvrc16_synsets.txt"
+# Where to store downloaded synset data.
+SYNSET_LOCATION = "/home/theano/training_data/synsets"
 # Where to cache downloaded files.
 CACHE_LOCATION = "/home/theano/training_data/cache"
 # Where to write dataset information.
@@ -278,6 +280,9 @@ class Ilsvrc12(Loader):
     """ Loads the next batch of training data from the Imagenet backend. """
     self.__training_buffer, labels = \
         self.__image_getter.get_random_train_batch()
+    mean = np.mean(self.__training_buffer)
+    self.__training_buffer -= mean
+    logger.debug("Training mean: %f" % mean)
 
     # Convert labels.
     self.__training_labels = self.__convert_labels_to_ints(labels)
@@ -291,8 +296,6 @@ class Ilsvrc12(Loader):
 
     self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
-    mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
-    logger.debug("Training mean: %f" % mean)
     self.__training_buffer -= mean
 
   def __load_next_testing_batch(self):
@@ -300,6 +303,8 @@ class Ilsvrc12(Loader):
     self.__testing_buffer, labels = \
         self.__image_getter.get_random_test_batch()
     print "Got raw labels: %s" % (labels)
+    mean = np.mean(self.__testing_buffer)
+    logger.debug("Testing mean: %f" % mean)
 
     # Convert labels.
     self.__testing_labels = self.__convert_labels_to_ints(labels)
@@ -313,8 +318,6 @@ class Ilsvrc12(Loader):
 
     self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
     # Standard AlexNet procedure is to subtract the mean.
-    mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
-    logger.debug("Testing mean: %f" % mean)
     self.__testing_buffer -= mean
 
   def __run_train_loader_thread(self):
