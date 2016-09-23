@@ -87,7 +87,8 @@ def download_image(url, keep_color=False):
   try:
     response = urllib2.urlopen(url, timeout=10)
   except (urllib2.HTTPError, urllib2.URLError, httplib.BadStatusLine,
-          socket.timeout, socket.error, ssl.CertificateError) as e:
+          socket.timeout, socket.error, ssl.CertificateError,
+          httplib.HTTPException, httplib.IncompleteRead) as e:
     # Generally, this is because the image was not found.
     logger.warning("Image download failed with '%s'." % (e))
     return None
