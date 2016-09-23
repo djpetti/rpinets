@@ -122,7 +122,7 @@ def download_image(url, keep_color=False):
       slow_cycles += 1
 
       if slow_cycles >= 3:
-        logger.warning("Aborting download due to slowness: %u" % (url))
+        logger.warning("Aborting download due to slowness: %s" % (url))
         return None
     else:
       slow_cycles = 0
