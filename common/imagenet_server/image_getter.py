@@ -1,3 +1,4 @@
+import cPickle as pickle
 import json
 import logging
 import operator
@@ -72,7 +73,8 @@ class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
 
   def __init__(self, synset_location, cache_location, batch_size,
-               preload_batches=1, test_percentage=0.1, download_words=False):
+               preload_batches=1, test_percentage=0.1, load_datasets_from=None,
+               download_words=False):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
@@ -84,6 +86,9 @@ class ImageGetter(object):
       this number uses more RAM, but can greatly increase performance.
       test_percentage: The percentage of the total images that will be used for
       testing.
+      load_datasets_from: The common part of the path to the files that we want
+      to load the training and testing datasets from. If this is not specified,
+      it will create new training and testing sets.
       download_words: Whether to download the words for each synset as well as
       just the numbers. """
     self._cache = cache.DiskCache(cache_location, 50000000000,
@@ -103,11 +108,30 @@ class ImageGetter(object):
       self.__total_images += len(urls)
 
     # Make internal datasets for training and testing.
-    train, test = self.__split_train_test_images(test_percentage)
-    self._train_set = _TrainingDataset(train, self._cache, self.__batch_size,
+    if (load_datasets_from and \
+        (os.path.exists(load_datasets_from + "_training.pkl") and \
+         os.path.exists(load_datasets_from + "_testing.pkl"))):
+      # Initialize empty datasets.
+      self._train_set = _TrainingDataset(set(), self._cache, self.__batch_size,
+                                         preload_batches=preload_batches)
+      self._test_set = _TestingDataset(set(), self._cache, self.__batch_size,
                                        preload_batches=preload_batches)
-    self._test_set = _TestingDataset(test, self._cache, self.__batch_size,
-                                     preload_batches=preload_batches)
+
+      # Use the saved datasets instead of making new ones.
+      self.load_datasets(load_datasets_from)
+    else:
+      train, test = self.__split_train_test_images(test_percentage)
+      self._train_set = _TrainingDataset(train, self._cache, self.__batch_size,
+                                         preload_batches=preload_batches)
+      self._test_set = _TestingDataset(test, self._cache, self.__batch_size,
+                                       preload_batches=preload_batches)
+
+      if load_datasets_from:
+        # If we specified a path to load datasets from, make them here for next
+        # time.
+        logger.warning("Datasets not found. Making new ones and saving in %s." \
+                       % (load_datasets_from))
+        self.save_datasets(load_datasets_from)
 
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
@@ -447,6 +471,24 @@ class ImageGetter(object):
 
     return images
 
+  def save_datasets(self, file_prefix):
+    """ Saves the datasets to the disk.
+    Args:
+      file_prefix: The first part of the filename for each dataset.
+      "_training.pkl" and "_testing.pkl" will be appended to it for each
+      individual datatset. """
+    self._train_set.save_images(file_prefix + "_training.pkl")
+    self._test_set.save_images(file_prefix + "_testing.pkl")
+
+  def load_datasets(self, file_prefix):
+    """ Loads the datasets from the disk.
+    Args:
+      file_prefix: The first part of the filename for each dataset.
+      "_training.pkl" and "_testing.pkl" will be appended to it for each
+      individual datatset. """
+    self._train_set.load_images(file_prefix + "_training.pkl")
+    self._test_set.load_images(file_prefix + "_testing.pkl")
+
 
 class SynsetListImageGetter(ImageGetter):
   """ Works like an ImageGetter, but only loads images from a predefined set of
@@ -699,6 +741,23 @@ class _Dataset(object):
   def get_images(self):
     """ Gets all the images in the dataset. """
     return self.__images
+
+  def save_images(self, filename):
+    """ Saves the set of images that this dataset contains to a file.
+    Args:
+      filename: The name of the file to write the list of images to. """
+    image_file = open(filename, "wb")
+    logger.debug("Saving dataset to file: %s" % (filename))
+    pickle.dump(self.__images, image_file)
+    image_file.close()
+
+  def load_images(self, filename):
+    """ Loads the set of images that this dataset contains from a file.
+    Args:
+      filename: The name of the file to read the list of images from. """
+    image_file = file(filename, "rb")
+    logger.info("Loading dataset from file: %s" % (filename))
+    self.__images = pickle.load(image_file)
 
 
 class _TrainingDataset(_Dataset):

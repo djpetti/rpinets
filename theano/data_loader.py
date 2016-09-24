@@ -30,6 +30,8 @@ MEAN_FILE = "mean.txt"
 ILSVRC12_URLS = "/home/theano/training_data/ilsvrc12_urls.txt"
 # Where to cache downloaded files.
 CACHE_LOCATION = "/home/theano/training_data/cache"
+# Where to write dataset information.
+DATASET_LOCATION = "/home/theano/training_data/ilsvrc16_dataset"
 
 
 logger = logging.getLogger(__name__)
