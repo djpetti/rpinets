@@ -30,6 +30,8 @@ MEAN_FILE = "mean.txt"
 ILSVRC12_URLS = "/home/theano/training_data/ilsvrc12_urls.txt"
 # Where to cache downloaded files.
 CACHE_LOCATION = "/home/theano/training_data/cache"
+# Where to write dataset information.
+DATASET_LOCATION = "/home/theano/training_data/ilsvrc16_dataset"
 
 
 logger = logging.getLogger(__name__)
@@ -188,10 +190,10 @@ class Ilsvrc12(Loader):
     self.__training_labels = None
     self.__testing_labels = None
     # This is how we'll actually get images.
-    self.__image_getter = image_getter.FilteredImageGetter(ILSVRC12_URLS,
-                                                           CACHE_LOCATION,
-                                                           self.__buffer_size,
-                                                           preload_batches=5)
+    self.__image_getter = \
+        image_getter.FilteredImageGetter(ILSVRC12_URLS, CACHE_LOCATION,
+                                         self.__buffer_size, preload_batches=5,
+                                         load_datasets_from=DATASET_LOCATION)
     # Lock that we use to make sure we are only getting one batch at a time.
     self.__image_getter_lock = threading.Lock()
 
