@@ -307,8 +307,6 @@ class MemoryBuffer(Cache):
       image: The image data to add.
       name: The name of the image.
       synset: The synset of the image. """
-    logger.debug("Adding %s to buffer at %d." % (name, self.__fill_index))
-
     self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
 
     unique_identifier = "%s_%s" % (synset, name)
@@ -324,9 +322,6 @@ class MemoryBuffer(Cache):
       patches: The list of patches to store.
       name: The name of the image.
       synset: The synset of the image. """
-    logger.debug("Adding %s to buffer starting at %d." % \
-                 (name, self.__fill_index))
-
     if len(patches) != self.__num_patches:
       raise ValueError("Expected %d patches, got %d." % (self.__num_patches,
                                                          len(patches)))

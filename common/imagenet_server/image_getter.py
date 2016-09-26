@@ -711,6 +711,7 @@ class _Dataset(object):
 
       time.sleep(0.2)
 
+    logger.debug("Loaded %d images from cache." % (loaded_from_cache))
     logger.debug("Finished downloading.")
     self.__num_downloading -= self._batch_size
     return self._mem_buffer.get_batch(), to_remove
@@ -748,8 +749,6 @@ class _Dataset(object):
     cached_image = self._cache.get(synset, image_number)
     if cached_image is not None:
       # We had a cached copy, so we're done.
-      logger.debug("Found image in cache: %s_%s" % (synset, image_number))
-
       # Select a patch.
       patches = data_augmentation.extract_patches(cached_image)
       cached_image = patches[random.randint(0, len(patches) - 1)]
