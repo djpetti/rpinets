@@ -1,10 +1,11 @@
 """ Handles caching downloaded data. """
 
-
+import collections
 import json
 import logging
 import operator
 import os
+import cPickle as pickle
 import time
 
 import cv2
@@ -39,141 +40,156 @@ class Cache(object):
 class DiskCache(Cache):
   """ Caches data to the HDD. """
 
-  def __init__(self, location, max_size, download_words=False):
+  def __init__(self, location, max_size, extension=".jpg"):
     """
     Args:
       location: Folder to store the cache in. Will be created if it doesn't
       exist.
       max_size: The maximum size, in bytes, of the cache.
-      download_words: Whether to download the words for each synset as well as
-      just the numbers. """
+      extension: The extension that we use for saved data, in this case, it
+      mainly defines the compression. It defaults to JPEG. """
     super(DiskCache, self).__init__()
 
-    self.__download_words = download_words
+    self.__extension = extension
 
-    # Total size of the cache.
+    # Total size of the cache file.
     self.__total_cache_size = 0
+    # Total space used within the cache file.
+    self.__total_space_used = 0
     self.__max_size = max_size
-
-    # This is a dict of when we've accessed each file in our cache.
-    self.__file_accesses = {}
 
     self.__location = location
     if not os.path.exists(self.__location):
       os.mkdir(self.__location)
 
-    # Maps synset names to the names of images in them.
+    # Maps synset names to the names of images in them. Each value is itself a
+    # dictionary that maps the image name to its offset in the cache file.
     self.__synsets = {}
+    # Maps offsets in the cache file to WNIDs of images that are there.
+    self.__offsets = {}
+    # The current location of free space within the cache file.
+    self.__free_start = 0
+    self.__free_end = 0
+    self.__update_free_counter()
 
     self.__load_existing_cache()
 
-  def __image_path(self, synset, image):
-    """
+  def __del__(self):
+    """ Cleans up the cache data.
+    NOTE: This is the reason why you DO NOT want to use SIGKILL on a process
+    with a DiskCache open. It will almost certainly corrupt the cache. """
+    logger.info("DiskCache: Cleaning up...")
+
+    # Close the data file.
+    self.__data_file.close()
+
+    # Write out the data map file.
+    cache_map_location = os.path.join(self.__location, "cache_map.pkl")
+    map_file = open(cache_map_location, "wb")
+    pickle.dump((self.__synsets, self.__free_start, self.__free_end), map_file)
+    map_file.close()
+
+  def __update_free_counter(self):
+    """ Updates the size of the free portion of the file. """
+    free_size = self.__free_end - self.__free_start
+    if free_size < 0:
+      # One has wrapped all the way.
+      free_size = self.__free_end + (self.__total_cache_size - \
+                                     self.__free_start)
+
+    self.__total_space_used = self.__total_cache_size - free_size
+    logger.debug("Disk cache space used: %d" % (self.__total_space_used))
+
+  def __add_image_data(self, size):
+    """ Updates the size of the free portion of the file when a new image is
+    added.
     Args:
-      synset: The name of the synset the image is in.
-      image: The number of the image.
-    Returns:
-      The path to an image based on its synset and number. """
-    image_name = "image%s.jpg" % (image)
-    return os.path.join(self.__location, synset, image_name)
+      The size of the image we are adding. """
+    self.__free_start += size
+    self.__free_start %= self.__total_cache_size
+
+    self.__total_space_used += size
+    if self.__total_space_used > self.__total_cache_size:
+      logger.critical("Using %d bytes in a cache of size %d!" % \
+                      (self.__total_space_used, self.__total_cache_size))
+      raise ValueError("Not enough space to add %d bytes in free portion." % \
+                       (size))
+
+  def __remove_image_data(self, size):
+    """ Updates the size of the free portion of the file when an image is
+    removed.
+    Args:
+      The size of the image we are removing. """
+    self.__free_end += size
+    self.__free_end %= self.__total_cache_size
+
+    self.__total_space_used -= size
+    if self.__total_space_used < 0:
+      logger.critical("Cannot remove %d bytes from empty cache." % (size))
+      raise ValueError("Cannot remove %d bytes from empty cache." % (size))
 
   def __load_existing_cache(self):
     """ Accounts for any data that already exists in the cache. """
-    for directory in os.listdir(self.__location):
-      full_path = os.path.join(self.__location, directory)
-      if not os.path.isdir(full_path):
-        continue
+    # Load the cache map file, which will tell us where everything is in the
+    # cache.
+    cache_map_location = os.path.join(self.__location, "cache_map.pkl")
+    if os.path.exists(cache_map_location):
+      logger.debug("Loading %s..." % (cache_map_location))
+      cache_map_file = file(cache_map_location, "rb")
+      self.__synsets, self.__free_start, self.__free_end = pickle.load(cache_map_file)
+      cache_map_file.close()
 
-      # Populate synsets dict.
-      self.__synsets[directory] = set([])
-      found_words = False
-      for item in os.listdir(full_path):
-        if item.endswith(".jpg"):
-          # This is an image.
-          self.__synsets[directory].add(item[5:][:-4])
-          # Get the size.
-          image_path = os.path.join(full_path, item)
-          self.__account_for_size(image_path)
-          # Get access time.
-          self.__file_accesses[image_path] = os.stat(image_path).st_atime
+      logger.debug("Free start, free end: %d, %d" % (self.__free_start,
+                                                     self.__free_end))
 
-        if item.endswith(".json"):
-          # List of words for the synset.
-          found_words = True
+    cache_data_location = os.path.join(self.__location, "cache_data.dat")
+    if not os.path.exists(cache_map_location):
+      # Make the data file if it doesn't exist already.
+      logger.info("Creating new cache data file: %s" % (cache_data_location))
+      data_file = open(cache_data_location, "wb")
+      data_file.close()
 
-      # If we need to download synset words, and we haven't already, do that
-      # now.
-      if (self.__download_words and not found_words):
-        self.__download_words_for_synset(directory)
+    # Load the cache data file, for reading and appending.
+    logger.debug("Loading %s..." % (cache_data_location))
+    self.__data_file = file(cache_data_location, "r+b")
 
+    self.__total_cache_size = os.stat(cache_data_location).st_size
     logger.info("Total cache size: %d", self.__total_cache_size)
 
-  def __account_for_size(self, path):
-    """ Adds the size of a file to the total cache size.
-    Args:
-      path: The path to the file. """
-    file_size = os.stat(path).st_size
-    self.__total_cache_size += file_size
+    self.__update_free_counter()
 
   def __maintain_size(self):
     """ Makes sure we stay within the bounds of the cache size limit. If we're
     over, it deletes the oldest files until we're at a better size. """
-    if self.__total_cache_size <= self.__max_size:
-      # We don't have to do anything.
-      return
-
-    # Sort files in cache by access time.
-    earliest = sorted(self.__file_accesses.items(), key=operator.itemgetter(1))
-    # Remove the earliest ones.
-    remove_i = 0
     while self.__total_cache_size > self.__max_size:
-      path, atime = earliest[remove_i]
-      logger.info("Removing %s, last accessed at %f" % (path, atime))
-      self.__remove_file(path)
-      remove_i += 1
+      # For now, we're just going to evict by time of addition, because it's
+      # easier.
+      # TODO (danielp): Implement better eviction policy.
+      self.evict_next_image()
 
-  def __remove_file(self, path):
-    """ Removes a file from the cache.
-    Args:
-      path: The path to the file. """
+  def evict_next_image(self):
+    """ Removes the next image from the cache. """
+    # Find the image to remove.
+    image_offset = self.__free_end
+    wnid = self.__offsets[image_offset]
+    logger.debug("Removing image: %s" % (wnid))
+    synset, number = wnid.split("_")
+
     # Decrease cache size.
-    file_size = os.stat(path).st_size
-    self.__total_cache_size -= file_size
+    _, image_size = self.__synsets[synset][number]
 
     # Remove it from various data structures.
-    self.__file_accesses.pop(path)
-    path_elements = os.path.normpath(path).split("/")
-    synset = path_elements[-2]
-    image_number = path_elements[-1][5:][:-4]
-    self.__synsets[synset].remove(image_number)
+    self.__synsets[synset].pop(number)
+    self.__offsets.pop(image_offset)
+
+    # Update the free section counters.
+    self.__remove_image_data(image_size)
 
   def __add_synset(self, name):
     """ Adds a new synset to the cache.
     Args:
       name: The name of the synset. """
-    # Make a directory to house the synset.
-    location = os.path.join(self.__location, name)
-    os.mkdir(location)
-
-    # Download words if we need to.
-    if self.__download_words:
-      self.__download_words_for_synset(name)
-
-    self.__synsets[name] = set([])
-
-  def __download_words_for_synset(self, synset):
-    """ Downloads the words that correspond to a particular synset.
-    Args:
-      synset: The name of the synset to download words for. """
-    # Get the words for this synset.
-    words = images.download_words(synset)
-
-    # Store the words for the synset.
-    location = os.path.join(self.__location, synset)
-    word_file_path = os.path.join(location, "%s.json" % (synset))
-    word_file = open(word_file_path, "w")
-    json.dump(words, word_file)
-    word_file.close()
+    self.__synsets[name] = {}
 
   def add(self, image, name, synset):
     """ Adds a new image to the cache. If the synset is not known, it
@@ -186,17 +202,44 @@ class DiskCache(Cache):
       logger.debug("Adding new synset to cache: %s", synset)
       self.__add_synset(synset)
 
-    image_path = self.__image_path(synset, name)
+    if name in self.__synsets[synset]:
+      raise ValueError("Attempt to add duplicate image %s_%s." % (synset, name))
 
-    # Write the image data.
-    logger.info("Saving new image to cache: %s", image_path)
-    cv2.imwrite(image_path, image)
+    # Compress the image for storage.
+    compressed = cv2.imencode(self.__extension, image)[1]
 
-    self.__account_for_size(image_path)
-    logger.info("New cache size: %d", self.__total_cache_size)
+    # Check if we have enough free space to write data there.
+    free_space = self.__total_cache_size - self.__total_space_used
+    wrote_at = 0
+    if free_space >= len(compressed):
+      logger.debug("Putting image of size %d in space of size %d." % \
+                   (len(compressed), free_space))
 
-    self.__synsets[synset].add(name)
-    self.__file_accesses[image_path] = time.time()
+      # Write the image at the appropriate place in the file.
+      self.__data_file.seek(self.__free_start)
+      self.__data_file.write(compressed)
+
+      wrote_at = self.__free_start
+
+      # Update the free space counter.
+      self.__add_image_data(len(compressed))
+
+    else:
+      logger.debug("Saving image %s_%s at end of file." % (synset, name))
+
+      # Add it to the end of the file.
+      self.__data_file.seek(0, 2)
+      self.__data_file.write(compressed)
+
+      wrote_at = self.__total_cache_size
+
+      # Now the file just got bigger.
+      self.__total_cache_size += len(compressed)
+      self.__total_space_used += len(compressed)
+
+    logger.debug("Wrote image at offset %d." % (wrote_at))
+    self.__synsets[synset][name] = (wrote_at, len(compressed))
+    self.__offsets[wrote_at] = "%s_%s" % (synset, name)
 
     # Make sure we stay within the size constraint.
     self.__maintain_size()
@@ -208,18 +251,30 @@ class DiskCache(Cache):
       name: The image name in the synset.
     Returns: The image data, or None if the image (or synset) doesn't exist in
              the cache. """
+    # Flush any pending writes to the file before we try to read.
+    self.__data_file.flush()
+
     if synset not in self.__synsets:
       return None
     if name not in self.__synsets[synset]:
       return None
 
-    image_path = self.__image_path(synset, name)
+    # Get the image offset and size.
+    offset, size = self.__synsets[synset][name]
 
-    # Read the image data.
-    image = cv2.imread(image_path, cv2.CV_LOAD_IMAGE_UNCHANGED)
-    self.__file_accesses[image_path] = time.time()
+    # Read and decode the image data.
+    self.__data_file.seek(offset)
+    raw_data = self.__data_file.read(size)
+    file_bytes = np.asarray(bytearray(raw_data), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.CV_LOAD_IMAGE_UNCHANGED)
 
     return image
+
+  def get_cache_size(self):
+    """
+    Returns:
+      The size of the file used to store the cached data. """
+    return self.__total_cache_size
 
 class MemoryBuffer(Cache):
   """ Set of images stored contiguously in memory. This is designed so that it

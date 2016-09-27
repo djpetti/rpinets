@@ -73,8 +73,7 @@ class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
 
   def __init__(self, synset_location, cache_location, batch_size,
-               preload_batches=1, test_percentage=0.1, load_datasets_from=None,
-               download_words=False):
+               preload_batches=1, test_percentage=0.1, load_datasets_from=None):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
@@ -88,11 +87,8 @@ class ImageGetter(object):
       testing.
       load_datasets_from: The common part of the path to the files that we want
       to load the training and testing datasets from. If this is not specified,
-      it will create new training and testing sets.
-      download_words: Whether to download the words for each synset as well as
-      just the numbers. """
-    self._cache = cache.DiskCache(cache_location, 50000000000,
-                                   download_words=download_words)
+      it will create new training and testing sets. """
+    self._cache = cache.DiskCache(cache_location, 50000000000)
     self.__batch_size = batch_size
 
     self._synset_location = synset_location
