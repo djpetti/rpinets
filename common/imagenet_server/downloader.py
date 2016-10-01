@@ -87,7 +87,9 @@ class DownloadManager(object):
     self.__all_patches = all_patches
 
     # Set of failed downloads.
-    self.__failures = set([])
+    self.__failures = set()
+    # Set of pending downloads.
+    self.__pending = set()
 
     # Create a new queue for us.
     _rejected_queue[self.__id] = collections.deque()
@@ -97,9 +99,18 @@ class DownloadManager(object):
     Args:
       synset: The synset of the image.
       number: The image number in the synset.
-      url: The url of the image. """
+      url: The url of the image.
+    Returns:
+      True if the download was added, False if it wasn't because it was already
+      being downloaded. """
+    if (synset, number) in self.__pending:
+      logger.debug("Download for %s_%s is already pending." % (synset, number))
+      return False
+
     # Add a new download.
+    self.__pending.add((synset, number))
     _command_queue.put((self.__id, synset, number, url))
+    return True
 
   def update(self):
     """ Adds any new processes, and cleans up any old ones. Should be called
@@ -143,6 +154,8 @@ class DownloadManager(object):
       if not more_data:
         # Nothing more to read.
         break
+
+      self.__pending.remove((synset, name))
 
       if image is None:
         # Download failed.

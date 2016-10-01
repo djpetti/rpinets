@@ -710,7 +710,10 @@ class _Dataset(object):
     image = self._get_cached_image(synset, number)
     if image is None:
       # We have to download the image instead.
-      self._download_manager.download_new(synset, number, url)
+      if not self._download_manager.download_new(synset, number, url):
+        # We're already downloading that image.
+        logger.info("Already downloading %s. Picking new one..." % (wnid))
+        return self._load_random_image()
       return 0
 
     # Cache hit.
