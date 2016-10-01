@@ -107,10 +107,12 @@ class ImageGetter(object):
       self.__synset_sizes[synset] = len(urls)
       self.__total_images += len(urls)
 
+    self.__load_datasets_from = load_datasets_from
+
     # Make internal datasets for training and testing.
-    if (load_datasets_from and \
-        (os.path.exists(load_datasets_from + "_training.pkl") and \
-         os.path.exists(load_datasets_from + "_testing.pkl"))):
+    if (self.__load_datasets_from and \
+        (os.path.exists(self.__load_datasets_from + "_training.pkl") and \
+         os.path.exists(self.__load_datasets_from + "_testing.pkl"))):
       # Initialize empty datasets.
       self._train_set = _TrainingDataset(set(), self._cache, self.__batch_size,
                                          preload_batches=preload_batches)
@@ -118,7 +120,17 @@ class ImageGetter(object):
                                        preload_batches=preload_batches)
 
       # Use the saved datasets instead of making new ones.
-      self.load_datasets(load_datasets_from)
+      self.load_datasets(self.__load_datasets_from)
+
+      # We might have deleted stuff since we last saved it, so we want to do
+      # some pruning.
+      if self._test_set.prune_images(self._synsets):
+        logger.info("Updating test database file...")
+        self._test_set.save_images(self.__load_datasets_from)
+      if self._train_set.prune_images(self._synsets):
+        logger.info("Updating train database file...")
+        self._train_set.save_images(self.__load_datasets_from)
+
     else:
       train, test = self.__split_train_test_images(test_percentage)
       self._train_set = _TrainingDataset(train, self._cache, self.__batch_size,
@@ -126,12 +138,12 @@ class ImageGetter(object):
       self._test_set = _TestingDataset(test, self._cache, self.__batch_size,
                                        preload_batches=preload_batches)
 
-      if load_datasets_from:
+      if self.__load_datasets_from:
         # If we specified a path to load datasets from, make them here for next
         # time.
         logger.warning("Datasets not found. Making new ones and saving in %s." \
-                       % (load_datasets_from))
-        self.save_datasets(load_datasets_from)
+                       % (self.__load_datasets_from))
+        self.save_datasets(self.__load_datasets_from)
 
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
@@ -766,6 +778,30 @@ class _Dataset(object):
     image_file = file(filename, "rb")
     logger.info("Loading dataset from file: %s" % (filename))
     self.__images = pickle.load(image_file)
+
+  def prune_images(self, synsets):
+    """ Remove any images from the dataset that are not specified in the input.
+    Args:
+      synsets: The synset data structure containing all the acceptable images.
+      If something is not in here, it will be removed.
+    Returns:
+      True if images were removed, False if none were. """
+    logger.info("Pruning dataset...")
+
+    # Put everything into a valid set.
+    valid = set()
+    for synset in synsets.keys():
+      for wnid, url in synsets[synset]:
+        valid.add((wnid, url))
+
+    # Remove anything that's not in it.
+    removed_image = False
+    for wnid, url in self.__images:
+      if (wnid, url) not in valid:
+        self.__images.remove((wnid, url))
+        removed_image = True
+
+    return removed_image
 
 
 class _TrainingDataset(_Dataset):
