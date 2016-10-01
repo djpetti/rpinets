@@ -441,7 +441,12 @@ class ImageGetter(object):
       file_object.close()
 
       # Remove the correct entries.
-      synset_data.remove([wnid.decode("utf8"), url.decode("utf8")])
+      try:
+        synset_data.remove([wnid.decode("utf8"), url.decode("utf8")])
+      except ValueError:
+        logger.warning("%s, %s not in synset data?" % (wnid.decode("utf8"),
+                                                       url.decode("utf8")))
+        continue
 
       # Write back to the file.
       self.__save_synset(synset, synset_data)
