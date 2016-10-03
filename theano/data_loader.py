@@ -12,6 +12,7 @@ import logging
 import os
 import random
 import urllib2
+import signal
 import threading
 
 import cv2
@@ -183,6 +184,10 @@ class Ilsvrc12(Loader):
       load_batches: How many batches to have in VRAM at any given time. """
     super(Ilsvrc12, self).__init__()
 
+    # Register signal handlers.
+    signal.signal(signal.SIGTERM, self.__exit_gracefully)
+    signal.signal(signal.SIGINT, self.__exit_gracefully)
+
     self.__buffer_size = batch_size * load_batches
     # Handle to the actual buffers containing images.
     self.__training_buffer = None
@@ -223,6 +228,34 @@ class Ilsvrc12(Loader):
     test_loader_thread.start()
     train_loader_thread = threading.Thread(target=self.__run_train_loader_thread)
     train_loader_thread.start()
+
+  def __exit_gracefully(self, *args, **kwargs):
+    """ Exit properly when we get a signal. """
+    logger.error("Got signal, exiting NOW.")
+
+    # Release all the locks so nothing can be blocking on them.
+    try:
+      self.__train_buffer_empty.release()
+    except threading.ThreadError:
+      pass
+
+    try:
+      self.__train_buffer_full.release()
+    except threading.ThreadError:
+      pass
+
+    try:
+      self.__test_buffer_empty.release()
+    except threading.ThreadError:
+      pass
+
+    try:
+      self.__test_buffer_full.release()
+    except threading.ThreadError:
+      pass
+
+    # Exit the program.
+    sys.exit(1)
 
   def __convert_labels_to_ints(self, labels):
     """ Converts a set of labels from the default synset names to integers, so
