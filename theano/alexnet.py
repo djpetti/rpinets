@@ -94,8 +94,7 @@ class AlexNet(LeNetClassifier):
     sort = np.argsort(mean, axis=1)
     top_one = sort[:, -1:]
     top_five = sort[:, -5:]
-    # expected_outputs includes duplicate values for each patch.
-    top_one_accuracy = np.mean(np.equal(expected_outputs[0:self._batch_size],
+    top_one_accuracy = np.mean(np.equal(expected_outputs,
                                         np.transpose(top_one)))
 
     # Top five accuracy.

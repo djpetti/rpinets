@@ -164,24 +164,41 @@ def run_imagenet_test():
   train_batch_index = 0
   test_batch_index = 0
 
-  while iterations < 800000:
+  while iterations < 50000:
+    logger.debug("Train index, size: %d, %d" % (train_batch_index,
+                                                data.get_train_set_size()))
+    logger.debug("Test index, size: %d, %d" % (test_batch_index,
+                                               data.get_test_set_size()))
+
+    # Swap in new data if we need to.
+    if (train_batch_index + 1) * batch_size > data.get_train_set_size():
+      train_batch_index = 0
+      logging.info("Getting train set.")
+      train = data.get_train_set()
+      logging.info("Got train set.")
+    # Swap in new data if we need to.
+    if (test_batch_index + 1) * batch_size > data.get_test_set_size():
+      test_batch_index = 0
+      logging.info("Getting test set.")
+      test = data.get_test_set()
+      logging.info("Got test set.")
+
     if iterations % 50 == 0:
-      logger.info("Loading test data...")
-      if not test:
-        # Load new test data.
-        test = data.get_test_set()
-      complete_test = test[0].get_value()
       cpu_labels = data.get_non_shared_test_set()
       logger.info("Finished loading test data.")
 
-      print cpu_labels
-      test[0].set_value(complete_test)
-      top_one, top_five = network.test(test_batch_index, cpu_labels)
-      test = None
+      # The labels we get are for the entire set of batches, with only one set
+      # of patches.
+      label_index = test_batch_index / 10
+      top_one, top_five = network.test(test_batch_index,
+                                       cpu_labels[label_index:label_index + \
+                                                              batch_size])
       print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
             (iterations, top_one, top_five)
 
-      test_batch_index += 1
+      # We have 10 translations, so each batch actually encompasses 10 times as
+      # many images.
+      test_batch_index += 10
 
     cost, rate, step = network.train(train_batch_index)
     print "Training cost: %f, learning rate: %f, step: %d" % \
@@ -195,16 +212,6 @@ def run_imagenet_test():
 
     iterations += 1
     train_batch_index += 1
-
-    # Swap in new data if we need to.
-    if (train_batch_index + 1) * batch_size > data.get_train_set_size():
-      train_batch_index = 0
-      logging.info("Getting train set.")
-      train = data.get_train_set()
-      logging.info("Got train set.")
-    # Swap in new data if we need to.
-    if (test_batch_index + 1) * batch_size > data.get_test_set_size():
-      test_batch_index = 0
 
   elapsed = time.time() - start_time
   speed = iterations / elapsed
