@@ -119,6 +119,21 @@ class DiskCache(Cache):
     """ Updates the size of the free portion of the file when an image is
     removed.
     Args:
+      The size of the image we are adding. """
+    self.__free_start += size
+    self.__free_start %= self.__total_cache_size
+
+    self.__total_space_used += size
+    if self.__total_space_used > self.__total_cache_size:
+      logger.critical("Using %d bytes in a cache of size %d!" % \
+                      (self.__total_space_used, self.__total_cache_size))
+      raise ValueError("Not enough space to add %d bytes in free portion." % \
+                       (size))
+
+  def __remove_image_data(self, size):
+    """ Updates the size of the free portion of the file when an image is
+    removed.
+    Args:
       The size of the image we are removing. """
     self.__free_end += size
     self.__free_end %= self.__total_cache_size
