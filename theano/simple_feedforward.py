@@ -213,8 +213,26 @@ class FeedforwardNetwork(object):
 
     return givens
 
+  def __make_params(self, train_layers):
+    """ Creates the list of parameters to update on each training step.
+    Args:
+      train_layers: A list of the layers to actually train. If this is None, all
+      of them will be used.
+    Returns:
+      A list of the parameters to update. """
+    params = []
+    if train_layers == None:
+      params = self._weights + self._biases
+    else:
+      for i in train_layers:
+        params.append(self._weights[i])
+      for i in train_layers:
+        params.append(self._biases[i])
+
+    return params
+
   def _build_sgd_trainer(self, cost, learning_rate, momentum, weight_decay,
-                         train_x, train_y, batch_size):
+                         train_x, train_y, batch_size, train_layers=None):
     """ Builds a new SGD trainer for the network.
     Args:
       cost: The cost function we are using.
@@ -222,10 +240,12 @@ class FeedforwardNetwork(object):
       train_x: Training set inputs.
       train_y: Training set expected outputs.
       batch_size: How big our batches are.
+      train_layers: If specified, this should be a list of the layers that are
+      actually going to be trained. Otherwise, all of them will be trained.
     Returns:
       Theano function for training the network. """
     # Compute gradients for all parameters.
-    params = self._weights + self._biases
+    params = self.__make_params(train_layers)
 
     # Tell it how to update the parameters.
     updates, grads = utils.momentum_sgd(cost, params, learning_rate, momentum,
@@ -244,7 +264,7 @@ class FeedforwardNetwork(object):
     return trainer
 
   def _build_rmsprop_trainer(self, cost, learning_rate, rho, epsilon, train_x,
-                             train_y, batch_size):
+                             train_y, batch_size, train_layers=None):
     """ Builds a new RMSProp trainer.
     Args:
       cost: The cost function we are using.
@@ -254,9 +274,11 @@ class FeedforwardNetwork(object):
       train_x: Training set inputs.
       train_y: Training set expected outputs.
       batch_size: How big our batches are.
+      train_layers: If specified, this should be a list of the layers that are
+      actually going to be trained. Otherwise, all of them will be trained.
     Returns:
       Theano function for training the network. """
-    params = self._weights + self._biases
+    params = self.__make_params(train_layers)
 
     updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
     # Update the global step too.
@@ -342,12 +364,16 @@ class FeedforwardNetwork(object):
     self.__add_layers(inputs, layers)
 
   def use_sgd_trainer(self, learning_rate, momentum=0.9, weight_decay=0.0005,
-                      decay_rate=1, decay_steps=0):
+                      decay_rate=1, decay_steps=0, train_layers=None):
     """ Tells it to use SGD to train the network.
     Args:
       learning_rate: The learning rate to use for training.
+      momentum: The momentum to use for SGD.
+      weight_decay: The weight decay to use for SGD.
       decay_rate: An optional exponential decay rate for the learning rate.
-      decay_steps: An optinal number of steps to decay in. """
+      decay_steps: An optinal number of steps to decay in.
+      train_layers: A list of the layer indices to actually train. If not
+      specified, it will train all of them. """
     # Save these for use when saving and loading the network.
     self.__trainer_type = "sgd"
     self.__train_params = (learning_rate, momentum, weight_decay,
@@ -361,17 +387,19 @@ class FeedforwardNetwork(object):
     self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
                                               momentum, weight_decay,
                                               self._train_x, self._train_y,
-                                              self._batch_size)
+                                              self._batch_size, train_layers)
 
   def use_rmsprop_trainer(self, learning_rate, rho, epsilon, decay_rate=1,
-                          decay_steps=0):
+                          decay_steps=0, train_layers=None):
     """ Tells it to use RMSProp to train the network.
     Args:
       learning_rate: The learning rate to use for training.
       rho: Weight decay.
       epsilon: Shift factor for gradient scaling.
       decay_rate: An optinal exponential decay rate for the learning rate.
-      decay_steps: An optional number of steps to decay in. """
+      decay_steps: An optional number of steps to decay in.
+      train_layers: A list of the layer indices to actually train. If not
+      specified, it will train all of them. """
     # Save these for use when saving and loading the network.
     self.__trainer_type = "rmsprop"
     self.__train_params = (learning_rate, rho, epsilon, decay_rate, decay_steps)
@@ -384,7 +412,8 @@ class FeedforwardNetwork(object):
     self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
                                                   rho, epsilon, self._train_x,
                                                   self._train_y,
-                                                  self._batch_size)
+                                                  self._batch_size,
+                                                  train_layers)
 
   @property
   def predict(self):
