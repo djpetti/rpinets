@@ -57,8 +57,8 @@ class DiskCacheTest(unittest.TestCase):
     """ Test that we can store and load a single item. """
     test_image = self.__images[0]
 
-    self.__cache.add(test_image, "image1", "synset1")
-    got_image = self.__cache.get("synset1", "image1")
+    self.__cache.add(test_image, "image1", "label1")
+    got_image = self.__cache.get("label1", "image1")
     self.assertTrue(np.array_equal(test_image, got_image))
 
   def test_saving(self):
@@ -66,12 +66,12 @@ class DiskCacheTest(unittest.TestCase):
     reload the cache. """
     test_image = self.__images[0]
 
-    self.__cache.add(test_image, "image1", "synset1")
+    self.__cache.add(test_image, "image1", "label1")
     # Force it to write out to the disk.
     del(self.__cache)
 
     new_cache = cache.DiskCache("test_cache", 1000000, extension=".tiff")
-    got_image = new_cache.get("synset1", "image1")
+    got_image = new_cache.get("label1", "image1")
     self.assertTrue(np.array_equal(test_image, got_image))
 
   def test_multiple_items(self):
@@ -79,12 +79,12 @@ class DiskCacheTest(unittest.TestCase):
     # Store all the images.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      self.__cache.add(image, name, "synset1")
+      self.__cache.add(image, name, "label1")
 
     # Load all the images.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      got_image = self.__cache.get("synset1", name)
+      got_image = self.__cache.get("label1", name)
       self.assertTrue(np.array_equal(image, got_image))
 
   def test_eviction(self):
@@ -92,24 +92,24 @@ class DiskCacheTest(unittest.TestCase):
     # Store all the images.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      self.__cache.add(image, name, "synset1")
+      self.__cache.add(image, name, "label1")
 
     # Evict the first image we put in.
     cache_size = self.__cache.get_cache_size()
     self.__cache.evict_next_image()
 
     # It should no longer show up.
-    self.assertIsNone(self.__cache.get("synset1", "image0"))
+    self.assertIsNone(self.__cache.get("label1", "image0"))
     self.assertEqual(cache_size, self.__cache.get_cache_size())
 
     # If we add the same image again, it should be exactly overwritten.
-    self.__cache.add(self.__images[0], "image0", "synset1")
+    self.__cache.add(self.__images[0], "image0", "label1")
     self.assertEqual(cache_size, self.__cache.get_cache_size())
 
     # All the images should still be valid.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      got_image = self.__cache.get("synset1", name)
+      got_image = self.__cache.get("label1", name)
       self.assertTrue(np.array_equal(image, got_image))
 
   def test_multiple_eviction(self):
@@ -121,7 +121,7 @@ class DiskCacheTest(unittest.TestCase):
     # Store all the images.
     for i, image in enumerate(images):
       name = "image%d" % (i)
-      self.__cache.add(image, name, "synset1")
+      self.__cache.add(image, name, "label1")
 
     # Evict all the images.
     cache_size = self.__cache.get_cache_size()
@@ -133,19 +133,19 @@ class DiskCacheTest(unittest.TestCase):
     images.reverse()
     for i, image in enumerate(images):
       name = "image%d" % (i)
-      self.__cache.add(image, name, "synset1")
+      self.__cache.add(image, name, "label1")
 
     # Total size still shouldn't have changed.
     self.assertEqual(cache_size, self.__cache.get_cache_size())
 
     # Now, add a last image, and make sure it expands the cache.
-    self.__cache.add(self.__images[-1], "last_image", "synset1")
+    self.__cache.add(self.__images[-1], "last_image", "label1")
     self.assertGreater(self.__cache.get_cache_size(), cache_size)
 
     # All the images should still be valid.
     for i, image in enumerate(images):
       name = "image%d" % (i)
-      got_image = self.__cache.get("synset1", name)
+      got_image = self.__cache.get("label1", name)
       self.assertTrue(np.array_equal(image, got_image))
-    got_image = self.__cache.get("synset1", "last_image")
+    got_image = self.__cache.get("label1", "last_image")
     self.assertTrue(np.array_equal(self.__images[-1], got_image))

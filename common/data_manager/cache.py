@@ -21,18 +21,18 @@ logger = logging.getLogger(__name__)
 class Cache(object):
   """ Defines an interface for caches. """
 
-  def add(self, image, name, synset):
+  def add(self, image, name, label):
     """ Add a new image to the cache.
     Args:
       image: The image to add.
       name: A unique name for the image.
-      synset: The synset of the image. """
+      label: The label of the image. """
     raise NotImplementedError("add() must be implemented by subclass.")
 
-  def get(self, synset, name):
+  def get(self, label, name):
     """ Gets an image from the cache.
     Args:
-      synset: The synset the image belongs to.
+      label: The label the image belongs to.
       name: The name of the image. """
     raise NotImplementedError("get() must be implemented by subclass.")
 
@@ -62,9 +62,9 @@ class DiskCache(Cache):
     if not os.path.exists(self.__location):
       os.mkdir(self.__location)
 
-    # Maps synset names to the names of images in them. Each value is itself a
+    # Maps label names to the names of images in them. Each value is itself a
     # dictionary that maps the image name to its offset in the cache file.
-    self.__synsets = {}
+    self.__labels = {}
     # Maps offsets in the cache file to WNIDs of images that are there.
     self.__offsets = {}
     # The current location of free space within the cache file.
@@ -86,7 +86,7 @@ class DiskCache(Cache):
     # Write out the data map file.
     cache_map_location = os.path.join(self.__location, "cache_map.pkl")
     map_file = open(cache_map_location, "wb")
-    pickle.dump((self.__synsets, self.__free_start, self.__free_end), map_file)
+    pickle.dump((self.__labels, self.__free_start, self.__free_end), map_file)
     map_file.close()
 
   def __update_free_counter(self):
@@ -103,21 +103,6 @@ class DiskCache(Cache):
   def __add_image_data(self, size):
     """ Updates the size of the free portion of the file when a new image is
     added.
-    Args:
-      The size of the image we are adding. """
-    self.__free_start += size
-    self.__free_start %= self.__total_cache_size
-
-    self.__total_space_used += size
-    if self.__total_space_used > self.__total_cache_size:
-      logger.critical("Using %d bytes in a cache of size %d!" % \
-                      (self.__total_space_used, self.__total_cache_size))
-      raise ValueError("Not enough space to add %d bytes in free portion." % \
-                       (size))
-
-  def __remove_image_data(self, size):
-    """ Updates the size of the free portion of the file when an image is
-    removed.
     Args:
       The size of the image we are adding. """
     self.__free_start += size
@@ -151,7 +136,7 @@ class DiskCache(Cache):
     if os.path.exists(cache_map_location):
       logger.debug("Loading %s..." % (cache_map_location))
       cache_map_file = file(cache_map_location, "rb")
-      self.__synsets, self.__free_start, self.__free_end = pickle.load(cache_map_file)
+      self.__labels, self.__free_start, self.__free_end = pickle.load(cache_map_file)
       cache_map_file.close()
 
       logger.debug("Free start, free end: %d, %d" % (self.__free_start,
@@ -188,37 +173,37 @@ class DiskCache(Cache):
     image_offset = self.__free_end
     wnid = self.__offsets[image_offset]
     logger.debug("Removing image: %s" % (wnid))
-    synset, number = wnid.split("_")
+    label, number = wnid.split("_")
 
     # Decrease cache size.
-    _, image_size = self.__synsets[synset][number]
+    _, image_size = self.__labels[label][number]
 
     # Remove it from various data structures.
-    self.__synsets[synset].pop(number)
+    self.__labels[label].pop(number)
     self.__offsets.pop(image_offset)
 
     # Update the free section counters.
     self.__remove_image_data(image_size)
 
-  def __add_synset(self, name):
-    """ Adds a new synset to the cache.
+  def __add_label(self, name):
+    """ Adds a new label to the cache.
     Args:
-      name: The name of the synset. """
-    self.__synsets[name] = {}
+      name: The name of the label. """
+    self.__labels[name] = {}
 
-  def add(self, image, name, synset):
-    """ Adds a new image to the cache. If the synset is not known, it
+  def add(self, image, name, label):
+    """ Adds a new image to the cache. If the label is not known, it
     automatically adds that too.
     Args:
       image: The image data to add.
-      name: The name of the image.
-      synset: The name of the synset to add it to. """
-    if synset not in self.__synsets:
-      logger.debug("Adding new synset to cache: %s", synset)
-      self.__add_synset(synset)
+      name: The name of the image. Should be unique within the label.
+      label: The image label. """
+    if label not in self.__labels:
+      logger.debug("Adding new label to cache: %s", label)
+      self.__add_label(label)
 
-    if name in self.__synsets[synset]:
-      raise ValueError("Attempt to add duplicate image %s_%s." % (synset, name))
+    if name in self.__labels[label]:
+      raise ValueError("Attempt to add duplicate image %s_%s." % (label, name))
 
     # Compress the image for storage.
     compressed = cv2.imencode(self.__extension, image)[1]
@@ -240,7 +225,7 @@ class DiskCache(Cache):
       self.__add_image_data(len(compressed))
 
     else:
-      logger.debug("Saving image %s_%s at end of file." % (synset, name))
+      logger.debug("Saving image %s_%s at end of file." % (label, name))
 
       # Add it to the end of the file.
       self.__data_file.seek(0, 2)
@@ -253,29 +238,29 @@ class DiskCache(Cache):
       self.__total_space_used += len(compressed)
 
     logger.debug("Wrote image at offset %d." % (wrote_at))
-    self.__synsets[synset][name] = (wrote_at, len(compressed))
-    self.__offsets[wrote_at] = "%s_%s" % (synset, name)
+    self.__labels[label][name] = (wrote_at, len(compressed))
+    self.__offsets[wrote_at] = "%s_%s" % (label, name)
 
     # Make sure we stay within the size constraint.
     self.__maintain_size()
 
-  def get(self, synset, name):
+  def get(self, label, name):
     """ Gets an image from the cache.
     Args:
-      synset: The name of the synset it belongs to.
-      name: The image name in the synset.
-    Returns: The image data, or None if the image (or synset) doesn't exist in
+      label: The label it belongs to.
+      name: The image name. It should be unique within the label.
+    Returns: The image data, or None if the image (or label) doesn't exist in
              the cache. """
     # Flush any pending writes to the file before we try to read.
     self.__data_file.flush()
 
-    if synset not in self.__synsets:
+    if label not in self.__labels:
       return None
-    if name not in self.__synsets[synset]:
+    if name not in self.__labels[label]:
       return None
 
     # Get the image offset and size.
-    offset, size = self.__synsets[synset][name]
+    offset, size = self.__labels[label][name]
 
     # Read and decode the image data.
     self.__data_file.seek(offset)
@@ -328,7 +313,7 @@ class MemoryBuffer(Cache):
     self.__label_fill_index = 0
     # Maps image names to indices in the underlying array.
     self.__image_indices = {}
-    # Keeps a list of image synsets in the order that they were added.
+    # Keeps a list of image labels in the order that they were added.
     self.__labels = [None] * self.__batch_size * self.__num_batches
 
     # Keeps track of the start of the last batch that we got.
@@ -371,27 +356,27 @@ class MemoryBuffer(Cache):
     if self.__data_in_buffer < 0:
       raise ValueError("Not enough data in buffer for a complete patch.""")
 
-  def add(self, image, name, synset):
+  def add(self, image, name, label):
     """ Adds a new image to the buffer.
     Args:
       image: The image data to add.
-      name: The name of the image.
-      synset: The synset of the image. """
+      name: The name of the image. Should be unique within the label.
+      label: The label of the image. """
     self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
 
-    unique_identifier = "%s_%s" % (synset, name)
+    unique_identifier = "%s_%s" % (label, name)
     self.__image_indices[unique_identifier] = self.__fill_index
 
-    self.__labels[self.__label_fill_index] = synset
+    self.__labels[self.__label_fill_index] = label
 
     self.__increment_fill_index()
 
-  def add_patches(self, patches, name, synset):
+  def add_patches(self, patches, name, label):
     """ Similar to add, except that it adds multiple patches for the same image.
     Args:
       patches: The list of patches to store.
-      name: The name of the image.
-      synset: The synset of the image. """
+      name: The name of the image. Should be unique within the label.
+      label: The label of the image. """
     if len(patches) != self.__num_patches:
       raise ValueError("Expected %d patches, got %d." % (self.__num_patches,
                                                          len(patches)))
@@ -403,17 +388,18 @@ class MemoryBuffer(Cache):
       patch_locations.append(location)
 
 
-    unique_identifier = "%s_%s" % (synset, name)
+    unique_identifier = "%s_%s" % (label, name)
     self.__image_indices[unique_identifier] = patch_locations
 
-    self.__labels[self.__label_fill_index] = synset
+    self.__labels[self.__label_fill_index] = label
 
     self.__increment_fill_index()
 
-  def get(self, synset, name):
+  def get(self, label, name):
     """ Gets an image that was added to the buffer. If there are multiple
     patches of this image, it returns a list of all the patches.
     Args:
+      label: The label of the image.
       name: The name of the image.
     Returns:
       The image data. """
@@ -428,7 +414,7 @@ class MemoryBuffer(Cache):
                             0:self.__channels]
 
 
-    unique_identifier = "%s_%s" % (synset, name)
+    unique_identifier = "%s_%s" % (label, name)
     index = self.__image_indices[unique_identifier]
 
     if type(index) is list:

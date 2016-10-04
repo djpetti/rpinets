@@ -3,7 +3,7 @@
 
 # This forks processes, so we want to import it as soon as possible, when there
 # is as little memory as possible being used.
-from common.imagenet_server import cache, image_getter
+from common.imagenet_server import cache, data_manager
 
 import cPickle as pickle
 import gzip
@@ -197,7 +197,7 @@ class Ilsvrc12(Loader):
     self.__testing_labels = None
     # This is how we'll actually get images.
     self.__image_getter = \
-        image_getter.SynsetFileImageGetter(ILSVRC16_SYNSETS, SYNSET_LOCATION,
+        data_manager.SynsetFileImageGetter(ILSVRC16_SYNSETS, SYNSET_LOCATION,
                                            CACHE_LOCATION, self.__buffer_size,
                                            preload_batches=2,
                                            load_datasets_from=DATASET_LOCATION)
