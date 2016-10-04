@@ -40,12 +40,13 @@ class Cache(object):
 class DiskCache(Cache):
   """ Caches data to the HDD. """
 
-  def __init__(self, location, max_size, extension=".jpg"):
+  def __init__(self, location, max_size=None, extension=".jpg"):
     """
     Args:
       location: Folder to store the cache in. Will be created if it doesn't
       exist.
-      max_size: The maximum size, in bytes, of the cache.
+      max_size: The maximum size, in bytes, of the cache. If not specified,
+                there will be no maximum size.
       extension: The extension that we use for saved data, in this case, it
       mainly defines the compression. It defaults to JPEG. """
     super(DiskCache, self).__init__()
@@ -161,6 +162,10 @@ class DiskCache(Cache):
   def __maintain_size(self):
     """ Makes sure we stay within the bounds of the cache size limit. If we're
     over, it deletes the oldest files until we're at a better size. """
+    # If we have no maximum size, we don't have to do anything.
+    if self.__max_size == None:
+      return
+
     while self.__total_cache_size > self.__max_size:
       # For now, we're just going to evict by time of addition, because it's
       # easier.
