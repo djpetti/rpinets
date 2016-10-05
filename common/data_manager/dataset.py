@@ -1,5 +1,6 @@
 import logging
 import cPickle as pickle
+import os
 import random
 import time
 
@@ -171,6 +172,9 @@ class Dataset(object):
     """ Loads the set of images that this dataset contains from a file.
     Args:
       filename: The name of the file to read the list of images from. """
+    if not os.path.exists(filename):
+      raise ValueError("Dataset file does not exist: %s" % (filename))
+
     image_file = file(filename, "rb")
     logger.info("Loading dataset from file: %s" % (filename))
     self.__images = pickle.load(image_file)
@@ -202,7 +206,6 @@ class Dataset(object):
 
 class TrainingDataset(Dataset):
   """ A standard training dataset. """
-
 
   def __init__(self, images, disk_cache, batch_size, preload_batches=1):
     """ See documentation for superclass method.
