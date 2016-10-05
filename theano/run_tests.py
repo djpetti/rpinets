@@ -130,7 +130,7 @@ def run_imagenet_test():
   save_file = "/home/theano/training_data/alexnet.pkl"
   synsets_save_file = "/home/theano/training_data/synsets.pkl"
 
-  data = data_loader.Ilsvrc12(batch_size, load_batches)
+  data = data_loader.ImagenetLoader(batch_size, load_batches)
   if os.path.exists(synsets_save_file):
     data.load(synsets_save_file)
   train = data.get_train_set()
