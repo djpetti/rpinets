@@ -208,6 +208,14 @@ class DataManagerLoader(Loader):
     self.__training_labels = None
     self.__testing_labels = None
 
+    self._train_set_size = self._buffer_size
+    if not self._patch_shape:
+      # No patches.
+      self._test_set_size = self._buffer_size
+    else:
+      # We have to account for all the patches.
+      self._test_set_size = self._buffer_size * 10
+
     # This is how we'll actually get images.
     self._init_image_getter()
     # Lock that we use to make sure we are only getting one batch at a time.
