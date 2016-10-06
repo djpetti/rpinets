@@ -10,31 +10,72 @@ logger = logging.getLogger(__name__)
 class ImageGetter(object):
   """ Gets random sets of images for use in training and testing. """
 
-  def __init__(self, cache_location, batch_size, preload_batches=1,
-               test_percentage=0.1, load_datasets_from=None):
+  def __init__(self, cache_location, batch_size, image_shape,
+               preload_batches=1, test_percentage=0.1,
+               load_datasets_from=None, patch_shape=None):
     """
     Args:
       cache_location: Where to cache downloaded images. Will be created if it
       doesn't exist.
       batch_size: The size of each batch to load.
+      image_shape: A three-element tuple containing the x and y size of the raw
+                   images that will be handled, and the number of channels.
       preload_batches: The number of batches that will be preloaded. Increasing
-      this number uses more RAM, but can greatly increase performance.
+                        this number uses more RAM, but can greatly increase
+                        performance.
       test_percentage: The percentage of the total images that will be used for
-      testing.
+                       testing.
       load_datasets_from: The common part of the path to the files that we want
-      to load the training and testing datasets from. """
+                          to load the training and testing datasets from.
+      patch_shape: The shape of the patches to extract from each image. If this
+                   is None, no patches will be extracted, and the raw images
+                   will be used directly. Furthermore, if this is specified, the
+                   batches from the testing dataset will contain copies of every
+                   patch. """
     self._cache = cache.DiskCache(cache_location, 50000000000)
     self._batch_size = batch_size
 
+    self._image_shape = image_shape
+    self._patch_shape = patch_shape
+
+    self._preload_batches = preload_batches
     self._load_datasets_from = load_datasets_from
+
+    self.__loaded_datasets = False
 
     # Initialize datasets.
     self._init_datasets()
 
   def __del__(self):
     # Save an updated version of our datasets when we exit.
-    logger.info("Saving datasets...")
-    self.save_datasets()
+    if self.__loaded_datasets:
+      logger.info("Saving datasets...")
+      self.save_datasets()
+
+  def _make_new_datasets(self, train_data, test_data):
+    """ Make training and testing datasets.
+    Args:
+      train_data: Data for training set.
+      test_data: Data for testing set. """
+    self._train_set = dataset.Dataset(train_data, self._cache,
+                                      self._batch_size,
+                                      self._image_shape,
+                                      preload_batches=self._preload_batches,
+                                      patch_shape=self._patch_shape)
+    if self._patch_shape:
+      # Use all the patches in the test set.
+      self._test_set = dataset.PatchedDataset(test_data, self._cache,
+                                              self._batch_size,
+                                              self._image_shape,
+                                              preload_batches= \
+                                                  self._preload_batches,
+                                              patch_shape=self._patch_shape)
+    else:
+      # No patches.
+      self._test_set = dataset.Dataset(test_data, self._cache,
+                                       self._batch_size, self._image_shape,
+                                       preload_batches=self._preload_batches,
+                                       patch_shape=self._patch_shape)
 
   def _init_datasets(self):
     """ Initializes the training and testing datasets. """
@@ -42,13 +83,7 @@ class ImageGetter(object):
       raise ValueError("load_datasets_from parameter must be a valid path.")
 
     # Initialize empty datasets.
-    self._train_set = dataset.TrainingDataset(set(), self._cache,
-                                              self._batch_size,
-                                              preload_batches=preload_batches)
-    self._test_set = dataset.TestingDataset(set(), self._cache,
-                                            self._batch_size,
-                                            preload_batches=preload_batches)
-
+    self._make_new_datasets(set(), set())
     # Use the saved datasets instead of making new ones.
     self.load_datasets()
 
@@ -81,3 +116,5 @@ class ImageGetter(object):
 
     self._train_set.load_images(file_prefix + "_training.pkl")
     self._test_set.load_images(file_prefix + "_testing.pkl")
+
+    self.__loaded_datasets = True

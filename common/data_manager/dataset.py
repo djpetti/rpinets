@@ -8,16 +8,18 @@ from randomset import RandomSet
 import cache
 import data_augmentation
 import downloader
+import utils
 
 
 logger = logging.getLogger(__name__)
 
 
-class Dataset(object):
+class _DatasetBase(object):
   """ Represents a single dataset, with a fixed group of images that it draws
   randomly from. """
 
-  def __init__(self, images, disk_cache, batch_size):
+  def __init__(self, images, disk_cache, batch_size, image_shape,
+               patch_shape=None):
     """
     Args:
       images: The list of images that makes up this dataset. The list should
@@ -25,11 +27,19 @@ class Dataset(object):
       that image should already be present in the cache, otherwise it will cause
       an error.
       disk_cache: The disk cache where we can store downloaded images.
-      batch_size: The size of each batch from this dataset. """
+      batch_size: The size of each batch from this dataset.
+      image_shape: A three-element tuple containing the x and y shape of the
+                   raw images, and the number of channels.
+      patch_shape: The shape of the patches to extract from images. If it is
+                   None, no patches will be extracted, and the base image will
+                   be used instead."""
+    self._image_shape = image_shape
+
     self.__images = RandomSet(images)
     self._cache = disk_cache
 
     self._batch_size = batch_size
+    self._patch_shape = patch_shape
 
     # The number of images that we've currently requested be downloaded.
     self.__num_downloading = 0
@@ -82,7 +92,7 @@ class Dataset(object):
       loaded_from_cache = 0
       for label, name, url in failures:
         # Remove failed image.
-        img_id = "%s_%s" % (label, name)
+        img_id = utils.make_img_id(label, name)
 
         logger.info("Removing bad image %s, %s" % (img_id, url))
 
@@ -115,7 +125,7 @@ class Dataset(object):
     Returns:
       How many images it loaded from the cache successfully. """
     img_id, url = self._pick_random_image()
-    label, number = img_id.split("_")
+    label, number = utils.split_img_id(img_id)
 
     image = self._get_cached_image(label, number)
     if image is None:
@@ -147,9 +157,11 @@ class Dataset(object):
     cached_image = self._cache.get(label, image_number)
     if cached_image is not None:
       # We had a cached copy, so we're done.
-      # Select a patch.
-      patches = data_augmentation.extract_patches(cached_image)
-      cached_image = patches[random.randint(0, len(patches) - 1)]
+      if self._patch_shape:
+        # Select a patch.
+        patches = data_augmentation.extract_patches(cached_image,
+                                                    self._patch_shape)
+        cached_image = patches[random.randint(0, len(patches) - 1)]
 
       return cached_image
 
@@ -204,49 +216,72 @@ class Dataset(object):
     return removed_image
 
 
-class TrainingDataset(Dataset):
-  """ A standard training dataset. """
+class Dataset(_DatasetBase):
+  """ A standard dataset. """
 
-  def __init__(self, images, disk_cache, batch_size, preload_batches=1):
+  def __init__(self, images, disk_cache, batch_size, image_shape,
+               preload_batches=1, patch_shape=None):
     """ See documentation for superclass method.
     Extra Args:
       preload_batches: How many additional batches to preload. This can greatly
-                       increase performace, but uses additional RAM. """
-    super(_TrainingDataset, self).__init__(images, disk_cache, batch_size)
+                       increase performace, but uses additional RAM.
+      patch_shape: A two-element tuple containing the size of each patch. If it
+                   is None, no patches will be extracted, and the image will be
+                   saved directly. """
+    super(Dataset, self).__init__(images, disk_cache, batch_size, image_shape,
+                                  patch_shape=patch_shape)
 
-    self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
-                                          channels=3)
-    self._download_manager = downloader.DownloadManager(self._cache,
-                                                        self._mem_buffer)
+    # We need to size the buffer accordingly for what images sized images are
+    # going to be stored.
+    buffer_shape = self._image_shape[:2]
+    _, _, channels = self._image_shape
+    if self._patch_shape:
+      buffer_shape = self._patch_shape
+
+    self._mem_buffer = cache.MemoryBuffer(buffer_shape, batch_size,
+                                          preload_batches, channels=channels)
+    self._download_manager = \
+        downloader.DownloadManager(self._cache,
+                                   self._mem_buffer,
+                                   patch_shape=self._patch_shape)
 
 
-class TestingDataset(Dataset):
-  """ Dataset specifically for testing. One main difference is that it extracts
-  every patch for each image, and stores 10 versions of each batch, one for each
-  patch type. """
+class PatchedDataset(_DatasetBase):
+  """ Dataset that extracts every patch for each image, and stores
+  10 versions of each batch, one for each patch type. """
 
-  def __init__(self, images, disk_cache, batch_size, preload_batches=1):
-    """ See documentation for _Dataset __init__ function.
+  def __init__(self, images, disk_cache, batch_size, image_shape,
+               preload_batches=1, patch_shape=None):
+    """ See documentation for _DatasetBase __init__ function.
     NOTE: batch_size here represents the base batch size. When you request a
     batch, it will actually return 10 times this many images, since it will use
     all the patches.
     Extra Args:
+      patch_shape: A two-element tuple containing the size of each patch.
       preload_batches: How many additional batches to preload. This can greatly
                        increase performace, but uses additional RAM. """
-    super(_TestingDataset, self).__init__(images, disk_cache, batch_size)
+    if not patch_shape:
+      raise ValueError("Keyword arg patch_shape is required for PatchedDataset.")
+
+    super(PatchedDataset, self).__init__(images, disk_cache, batch_size,
+                                         image_shape, patch_shape=patch_shape)
 
     # We need 10x the buffer space to store the extra patches.
-    self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
-                                          channels=3, num_patches=10)
-    self._download_manager = downloader.DownloadManager(self._cache,
-                                                        self._mem_buffer,
-                                                        all_patches=True)
+    _, _, channels = self._image_shape
+    self._mem_buffer = cache.MemoryBuffer(self._patch_shape, batch_size,
+                                          preload_batches, channels=channels,
+                                          num_patches=10)
+    self._download_manager = \
+        downloader.DownloadManager(self._cache,
+                                   self._mem_buffer,
+                                   all_patches=True,
+                                   patch_shape=self._patch_shape)
 
   def _load_random_image(self):
     """ See superclass documentation. This override is necessary to deal with
     multiple patches. """
     img_id, url = self._pick_random_image()
-    label, number = img_id.split("_")
+    label, number = utils.split_img_id(img_id)
 
     patches = self._get_cached_image(label, number)
     if patches is None:

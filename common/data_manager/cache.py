@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 import images
+import utils
 
 
 logger = logging.getLogger(__name__)
@@ -178,7 +179,7 @@ class DiskCache(Cache):
     image_offset = self.__free_end
     wnid = self.__offsets[image_offset]
     logger.debug("Removing image: %s" % (wnid))
-    label, number = wnid.split("_")
+    label, number = utils.split_img_id(wnid)
 
     # Decrease cache size.
     _, image_size = self.__labels[label][number]
@@ -208,7 +209,8 @@ class DiskCache(Cache):
       self.__add_label(label)
 
     if name in self.__labels[label]:
-      raise ValueError("Attempt to add duplicate image %s_%s." % (label, name))
+      raise ValueError("Attempt to add duplicate image %s." % \
+                       utils.make_img_id(label, name))
 
     # Compress the image for storage.
     compressed = cv2.imencode(self.__extension, image)[1]
@@ -230,7 +232,8 @@ class DiskCache(Cache):
       self.__add_image_data(len(compressed))
 
     else:
-      logger.debug("Saving image %s_%s at end of file." % (label, name))
+      logger.debug("Saving image %s at end of file." % \
+                   utils.make_img_id(label, name))
 
       # Add it to the end of the file.
       self.__data_file.seek(0, 2)
@@ -244,7 +247,7 @@ class DiskCache(Cache):
 
     logger.debug("Wrote image at offset %d." % (wrote_at))
     self.__labels[label][name] = (wrote_at, len(compressed))
-    self.__offsets[wrote_at] = "%s_%s" % (label, name)
+    self.__offsets[wrote_at] = utils.make_img_id(label, name)
 
     # Make sure we stay within the size constraint.
     self.__maintain_size()
@@ -286,11 +289,12 @@ class MemoryBuffer(Cache):
   can be used as a staging area before a batch is transferred into GPU memory.
   """
 
-  def __init__(self, image_size, batch_size, num_batches, channels=1,
+  def __init__(self, image_shape, batch_size, num_batches, channels=1,
                num_patches=1):
     """
     Args:
-      image_size: Size of one side of a square image.
+      image_shape: Two element tuple containing the x and y dimensions of the
+                   image.
       batch_size: The size of each batch of images.
       num_batches: The number of batches we should be able to hold.
       channels: Number of channels the images have.
@@ -298,7 +302,7 @@ class MemoryBuffer(Cache):
     """
     super(MemoryBuffer, self).__init__()
 
-    self.__image_size = image_size
+    self.__image_shape = image_shape
     self.__batch_size = batch_size
     self.__num_batches = num_batches
     self.__num_patches = num_patches
@@ -310,7 +314,9 @@ class MemoryBuffer(Cache):
 
     # This will be are underlying storage for the cache.
     self.__channels = channels
-    shape = (self.__num_images, self.__channels, image_size, image_size)
+    image_x, image_y = self.__image_shape
+    shape = (self.__num_images, self.__channels, image_x, image_y)
+    logger.debug("MemBuffer: Creating array of shape: %s" % (str(shape)))
     self.__storage = np.empty(shape, dtype="uint8")
 
     self.__fill_index = 0
@@ -361,15 +367,34 @@ class MemoryBuffer(Cache):
     if self.__data_in_buffer < 0:
       raise ValueError("Not enough data in buffer for a complete patch.""")
 
+  def __convert_image_for_buffer(self, image):
+    """ Converts a raw image as loaded by OpenCV into a form that is compatible
+    with the buffer.
+    Args:
+      image: The image to convert.
+    Returns:
+      The converted version of the image. """
+    if (len(image.shape) != 2 and len(image.shape) != 3):
+      raise ValueError("Expected image of 2 or 3 dimensions.")
+
+    if len(image.shape) == 2:
+      # If we have a monochrome image, it's not going to have a dimension for
+      # the channels, so we have to add it.
+      image = np.expand_dims(image, 2)
+
+    # Change the dimension order to make it compatible with the underlying
+    # storage.
+    return np.transpose(image, (2, 0, 1))
+
   def add(self, image, name, label):
     """ Adds a new image to the buffer.
     Args:
       image: The image data to add.
       name: The name of the image. Should be unique within the label.
       label: The label of the image. """
-    self.__storage[self.__fill_index] = np.transpose(image, (2, 0, 1))
+    self.__storage[self.__fill_index] = self.__convert_image_for_buffer(image)
 
-    unique_identifier = "%s_%s" % (label, name)
+    unique_identifier = utils.make_img_id(label, name)
     self.__image_indices[unique_identifier] = self.__fill_index
 
     self.__labels[self.__label_fill_index] = label
@@ -389,11 +414,11 @@ class MemoryBuffer(Cache):
     patch_locations = []
     for i, patch in enumerate(patches):
       location = self.__fill_index + i * self.__batch_size
-      self.__storage[location] = np.transpose(patch, (2, 0, 1))
+      self.__storage[location] = self.__convert_image_for_buffer(image)
       patch_locations.append(location)
 
 
-    unique_identifier = "%s_%s" % (label, name)
+    unique_identifier = utils.make_img_id(label, name)
     self.__image_indices[unique_identifier] = patch_locations
 
     self.__labels[self.__label_fill_index] = label
@@ -408,25 +433,14 @@ class MemoryBuffer(Cache):
       name: The name of the image.
     Returns:
       The image data. """
-    def get_image(index):
-      """ Get the image at the specified index.
-      Args:
-        index: The index of the image.
-      Returns:
-        The image data. """
-      return self.__storage[0:self.__image_size,
-                            index:index + self.__image_size,
-                            0:self.__channels]
-
-
-    unique_identifier = "%s_%s" % (label, name)
+    unique_identifier = utils.make_wnid_id(label, name)
     index = self.__image_indices[unique_identifier]
 
     if type(index) is list:
       # There are multiple patches.
       patches = []
       for i in index:
-        patches.append(get_image(i))
+        patches.append(self.__storage[index])
       return patches
 
     return get_image(index)

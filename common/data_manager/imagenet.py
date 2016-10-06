@@ -6,6 +6,7 @@ import random
 import urllib2
 
 import dataset
+import utils
 
 
 logger = logging.getLogger(__name__)
@@ -96,13 +97,7 @@ class ImagenetGetter(ImageGetter):
     # Make internal datasets for training and testing.
     if self._load_datasets_from:
       # Initialize empty datasets.
-      self._train_set = dataset.TrainingDataset(set(), self._cache,
-                                                self._batch_size,
-                                                preload_batches=preload_batches)
-      self._test_set = dataset.TestingDataset(set(), self._cache,
-                                              self._batch_size,
-                                              preload_batches=preload_batches)
-
+      self._make_new_datasets(set(), set())
       # Use the saved datasets instead of making new ones.
       self.load_datasets()
 
@@ -117,12 +112,7 @@ class ImagenetGetter(ImageGetter):
 
     else:
       train, test = self.__split_train_test_images(test_percentage)
-      self._train_set = dataset.TrainingDataset(train, self._cache,
-                                                self._batch_size,
-                                                preload_batches=preload_batches)
-      self._test_set = dataset.TestingDataset(test, self._cache,
-                                              self._batch_size,
-                                              preload_batches=preload_batches)
+      self._make_new_datasets(train, test)
 
       if self._load_datasets_from:
         # If we specified a path to load datasets from, make them here for next
@@ -429,7 +419,7 @@ class ImagenetGetter(ImageGetter):
       bad_images: A list of the images to remove. Should contain tuples of the
       image WNID and URL. """
     for wnid, url in bad_images:
-      synset, _ = wnid.split("_")
+      synset, _ = utils.split_img_id(wnid)
 
       # Load the proper file.
       file_name = "%s.json" % (synset)
@@ -548,7 +538,7 @@ class FilteredImagenetGetter(ImagenetGetter):
 
     # Separate it by synset and load it into the dictionary.
     for wnid, url in images:
-      synset, _ = wnid.split("_")
+      synset, _ = utils.split_img_id(wnid)
 
       if synset not in self._synsets:
         self._synsets[synset] = []

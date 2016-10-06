@@ -1,22 +1,28 @@
 import numpy as np
 
 
-def extract_patches(image):
-  """ Extracts 224x224 patches from the image. It extracts ten such patches:
+def extract_patches(image, patch_shape):
+  """ Extract patches from the image. It extracts ten such patches:
   Top left, top right, bottom left, bottom right, and center, plus horizontal
   reflections of them all.
   Args:
     image: The input image to extract patches from.
+    patch_shape: A two-element tuple containing the size of each patch.
   Returns:
     The five extracted patches. """
-  top_left = image[0:224, 0:224]
-  top_right = image[256 - 224:256, 0:224]
-  bottom_left = image[0:224, 256 - 224:256]
-  bottom_right = image[256 - 224:256, 256 - 224:256]
+  # Get the initial image shape.
+  width, height = image.shape
+  new_width, new_height = patch_shape
 
-  distance_from_edge = (256 - 224) / 2
-  center = image[distance_from_edge:256 - distance_from_edge,
-                  distance_from_edge:256 - distance_from_edge]
+  top_left = image[0:new_width, 0:new_height]
+  top_right = image[width - new_width:width, 0:new_height]
+  bottom_left = image[0:new_width, height - new_height:height]
+  bottom_right = image[width - new_width:width, height - new_height:height]
+
+  distx_from_edge = (width - new_width) / 2
+  disty_from_edge = (height - new_height) / 2
+  center = image[distx_from_edge:width - distx_from_edge,
+                 disty_from_edge:height - disty_from_edge]
 
   # Flip everything as well.
   top_left_flip = np.fliplr(top_left)

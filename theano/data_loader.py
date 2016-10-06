@@ -179,16 +179,23 @@ class Mnist(Loader):
 class DataManagerLoader(Loader):
   """ Loads datasets concurrently with the help of the data_manager package. """
 
-  def __init__(self, batch_size, load_batches, dataset_location):
+  def __init__(self, batch_size, load_batches, image_shape, dataset_location,
+               patch_shape=None):
     """
     Args:
       batch_size: How many images are in each batch.
       load_batches: How many batches to have in VRAM at any given time.
+      image_shape: The shape of the images that will be loaded.
       dataset_location: The common part of the path to the files that we will be
-      loading our training and testing datasets from. """
+      loading our training and testing datasets from.
+      patch_shape: The shape of the patches that will be extracted from the
+      images. If None, no patches will be extracted, and the raw images will be
+      used directly. """
     super(DataManagerLoader, self).__init__()
 
+    self._image_shape = image_shape
     self._dataset_location = dataset_location
+    self._patch_shape = patch_shape
 
     # Register signal handlers.
     signal.signal(signal.SIGTERM, self.__exit_gracefully)
@@ -236,8 +243,9 @@ class DataManagerLoader(Loader):
     This can be overriden by subclasses to add specific functionality. """
     self._image_getter = \
         image_getter.ImageGetter(CACHE_LOCATION, self._buffer_size,
-                                 preload_batches=2,
-                                 load_datasets_from=self._dataset_location)
+                                 self._image_shape, preload_batches=2,
+                                 load_datasets_from=self._dataset_location,
+                                 patch_shape=self._patch_shape)
 
   def __exit_gracefully(self, *args, **kwargs):
     """ Exit properly when we get a signal. """
@@ -434,6 +442,6 @@ class ImagenetLoader(DataManagerLoader):
     self._image_getter = \
         imagenet.SynsetFileImagenetGetter( \
             ILSVRC16_SYNSETS, SYNSET_LOCATION, CACHE_LOCATION,
-            self._buffer_size, preload_batches=2,
-            load_datasets_from=self._dataset_location)
+            self._buffer_size, (256, 256, 3), preload_batches=2,
+            load_datasets_from=self._dataset_location, patch_shape=(224, 224))
 
