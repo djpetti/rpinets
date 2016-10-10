@@ -17,7 +17,8 @@ class LeNetClassifier(FeedforwardNetwork):
   """ A classifier built upon the Convolutional Neural Network as described by
   Yan LeCun. """
 
-  def __init__(self, image_size, layers, outputs, train, test, batch_size):
+  def __init__(self, image_size, layers, outputs, train, test, batch_size,
+               *args, **kwargs):
     """
     NOTE: For input images, this class will accept them in the format of a 4D
     tensor with the dimensions (batch_size, input_channels, input_rows,
@@ -29,7 +30,7 @@ class LeNetClassifier(FeedforwardNetwork):
       train: The training dataset.
       test: The testing dataset.
       batch_size: The size of each image batch. """
-    self._initialize_variables(train, test, batch_size)
+    self._initialize_variables(train, test, batch_size, *args, **kwargs)
 
     conv_layers, feedforward_layers = self.__split_layers(layers)
     # We don't call the base class constructor here, because we want it to build

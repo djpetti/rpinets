@@ -202,6 +202,8 @@ class Ilsvrc12(Loader):
                                            CACHE_LOCATION, self.__buffer_size,
                                            preload_batches=2,
                                            load_datasets_from=DATASET_LOCATION)
+    self._train_set_size = self.__buffer_size
+    self._test_set_size = self.__buffer_size * 10
     # Lock that we use to make sure we are only getting one batch at a time.
     self.__image_getter_lock = threading.Lock()
 

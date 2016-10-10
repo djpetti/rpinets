@@ -82,8 +82,11 @@ class AlexNet(LeNetClassifier):
       expected_outputs: A non-symbolic copy of our expected outputs.
     Returns:
       The accuracy of the network. """
-    # Run for every translation.
-    for i in range(0, 10):
+    # Since the tester does everything in terms of batch size, we need to
+    # convert patch_separation to batch sized units.
+    separation = self._patch_separation / self._batch_size
+    # Run for every patch.
+    for i in range(0, 10 * separation, separation):
       self.__softmaxes.append(self._tester(batch_index + i))
 
     # Find the mean distribution.

@@ -145,7 +145,8 @@ def run_imagenet_test():
 
   else:
     # Build new network.
-    network = AlexNet(train, test, batch_size)
+    network = AlexNet(train, test, batch_size,
+                      patch_separation=batch_size * load_batches)
 
     network.use_sgd_trainer(learning_rate, momentum=momentum,
                             weight_decay=weight_decay,
@@ -177,28 +178,25 @@ def run_imagenet_test():
       train = data.get_train_set()
       logging.info("Got train set.")
     # Swap in new data if we need to.
-    if (test_batch_index + 1) * batch_size > data.get_test_set_size():
+    test_set_one_patch = data.get_test_set_size() / 10
+    if (test_batch_index + 1) * batch_size > test_set_one_patch:
       test_batch_index = 0
       logging.info("Getting test set.")
       test = data.get_test_set()
-      logging.info("Got test set.")
+      cpu_labels = data.get_non_shared_test_set()[:]
+      logger.info("Got test set.")
 
-    if iterations % 50 == 0:
-      cpu_labels = data.get_non_shared_test_set()
-      logger.info("Finished loading test data.")
-
-      # The labels we get are for the entire set of batches, with only one set
-      # of patches.
-      label_index = test_batch_index / 10
+    if iterations % 100 == 0:
+      # cpu_labels contains labels for every batch currently loaded in VRAM,
+      # without duplicates for additional patches.
+      label_index = test_batch_index * batch_size
       top_one, top_five = network.test(test_batch_index,
                                        cpu_labels[label_index:label_index + \
                                                               batch_size])
       print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
             (iterations, top_one, top_five)
 
-      # We have 10 translations, so each batch actually encompasses 10 times as
-      # many images.
-      test_batch_index += 10
+      test_batch_index += 1
 
     cost, rate, step = network.train(train_batch_index)
     print "Training cost: %f, learning rate: %f, step: %d" % \

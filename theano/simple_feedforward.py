@@ -17,7 +17,8 @@ import utils
 class FeedforwardNetwork(object):
   """ A simple, fully-connected feedforward neural network. """
 
-  def __init__(self, layers, outputs, train, test, batch_size):
+  def __init__(self, layers, outputs, train, test, batch_size,
+               patch_separation=None):
     """
     Args:
       layers: A list of ints denoting the number of inputs for each layer. It
@@ -26,8 +27,11 @@ class FeedforwardNetwork(object):
       outputs: The number of outputs of the network.
       train: Training dataset, should be pair of inputs and expected outputs.
       test: Testing dataset, should be pair of inputs and expected outputs.
-      batch_size: The size of each minibatch. """
-    self._initialize_variables(train, test, batch_size)
+      batch_size: The size of each minibatch.
+      patch_separation: Specifies the distance between each patch of a given
+                        image. If not provided, it is assumed to be the same
+                        as the batch size. """
+    self._initialize_variables(train, test, batch_size, patch_separation)
     self.__build_model(layers, outputs)
 
   def __getstate__(self):
@@ -35,7 +39,9 @@ class FeedforwardNetwork(object):
     state = (self._weights, self._biases, self._layer_stack, self._cost,
              self._inputs, self._expected_outputs, self.__trainer_type,
              self.__train_params, self._global_step, self._srng,
-             self._training, self._used_training, self._intermediate_activations)
+             self._training, self._used_training,
+             self._intermediate_activations,
+             self._patch_separation)
     return state
 
   def __setstate__(self, state):
@@ -43,17 +49,25 @@ class FeedforwardNetwork(object):
     self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
     self._expected_outputs, self.__trainer_type, self.__train_params, \
     self._global_step, self._srng, self._training, \
-    self._used_training, self._intermediate_activations = state
+    self._used_training, self._intermediate_activations, \
+    self._patch_separation = state
 
-  def _initialize_variables(self, train, test, batch_size):
+  def _initialize_variables(self, train, test, batch_size,
+                            patch_separation=None):
     """ Initializes variables that are common to all subclasses.
     Args:
       train: Training set.
       test: Testing set.
-      batch_size: Size of each minibatch. """
+      batch_size: Size of each minibatch.
+      patch_separation: Distance between each patch of a given image. """
     self._train_x, self._train_y = train
     self._test_x, self._test_y = test
     self._batch_size = batch_size
+
+    if patch_separation:
+      self._patch_separation = patch_separation
+    else:
+      self._patch_separation = self._batch_size
 
     # These are the weights and biases that will be used for calculating
     # gradients.
