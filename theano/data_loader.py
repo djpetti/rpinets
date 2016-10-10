@@ -13,6 +13,7 @@ import os
 import random
 import urllib2
 import signal
+import sys
 import threading
 
 import cv2
@@ -186,8 +187,8 @@ class Ilsvrc12(Loader):
     super(Ilsvrc12, self).__init__()
 
     # Register signal handlers.
-    signal.signal(signal.SIGTERM, self.__exit_gracefully)
-    signal.signal(signal.SIGINT, self.__exit_gracefully)
+    signal.signal(signal.SIGTERM, self.__on_signal)
+    signal.signal(signal.SIGINT, self.__on_signal)
 
     self.__buffer_size = batch_size * load_batches
     # Handle to the actual buffers containing images.
@@ -223,15 +224,33 @@ class Ilsvrc12(Loader):
     self.__synsets = {}
     self.__current_label = 0
 
-    # Start the loader threads.
-    test_loader_thread = threading.Thread(target=self.__run_test_loader_thread)
-    test_loader_thread.start()
-    train_loader_thread = threading.Thread(target=self.__run_train_loader_thread)
-    train_loader_thread.start()
+    # This is an event that signals to the internal threads that it's time to
+    # exit.
+    self.__exit_event = threading.Event()
 
-  def __exit_gracefully(self, *args, **kwargs):
-    """ Exit properly when we get a signal. """
-    logger.error("Got signal, exiting NOW.")
+    # Start the loader threads.
+    self.__test_thread = threading.Thread(target=self.__run_test_loader_thread)
+    self.__test_thread.start()
+    self.__train_thread = threading.Thread(target=self.__run_train_loader_thread)
+    self.__train_thread.start()
+
+  def __del__(self):
+    """ Cleanup upon program exit. """
+    self.exit_gracefully()
+
+  def __on_signal(self, *args, **kwargs):
+    """ Upon receiving a signal, it cleans up and exits the program. """
+    logger.error("Got signal, exiting.")
+
+    self.exit_gracefully()
+    sys.exit(1)
+
+  def exit_gracefully(self):
+    """ Stop the threads and exit properly. """
+    logger.info("Data loader system is exiting NOW.")
+
+    # Signal internal threads that it's time to quit.
+    self.__exit_event.set()
 
     # Release all the locks so nothing can be blocking on them.
     try:
@@ -254,8 +273,10 @@ class Ilsvrc12(Loader):
     except threading.ThreadError:
       pass
 
-    # Exit the program.
-    sys.exit(1)
+    # Wait for the internal threads to join.
+    logger.info("Joining threads...")
+    self.__train_thread.join()
+    self.__test_thread.join()
 
   def __convert_labels_to_ints(self, labels):
     """ Converts a set of labels from the default synset names to integers, so
@@ -332,9 +353,21 @@ class Ilsvrc12(Loader):
       self.__load_next_training_batch()
       logger.info("Done loading next training batch.")
 
-      self.__image_getter_lock.release()
-      # Allow the main thread to use what we loaded.
-      self.__train_buffer_full.release()
+      thread_error = None
+      try:
+        self.__image_getter_lock.release()
+        # Allow the main thread to use what we loaded.
+        self.__train_buffer_full.release()
+      except threading.ThreadError as e:
+        # The only way this should happen is if we hit an exit condition.
+        thread_error = e
+
+      if self.__exit_event.is_set():
+        logger.info("Got exit event, terminating train loader thread.")
+        return
+
+      if thread_error:
+        raise thread_error
 
   def __run_test_loader_thread(self):
     """ The main function for the thread to load training data. """
@@ -347,9 +380,21 @@ class Ilsvrc12(Loader):
       self.__load_next_testing_batch()
       logger.info("Done loading next testing batch.")
 
-      self.__image_getter_lock.release()
-      # Allow the main thread to use what we loaded.
-      self.__test_buffer_full.release()
+      thread_error = None
+      try:
+        self.__image_getter_lock.release()
+        # Allow the main thread to use what we loaded.
+        self.__test_buffer_full.release()
+      except threading.ThreadError as e:
+        # The only way this should happen is if we hit an exit condition.
+        thread_error = e
+
+      if self.__exit_event.is_set():
+        logger.info("Got exit event, terminating test loader thread.")
+        return
+
+      if thread_error:
+        raise thread_error
 
   def __swap_in_training_data(self):
     """ Takes training data buffered into system memory and loads it into VRAM

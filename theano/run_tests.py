@@ -218,6 +218,9 @@ def run_imagenet_test():
   print("Theano: Ran %d training iterations. (%f iter/s)" % \
       (iterations, speed))
   print("Theano: Imagenet test completed in %f seconds." % (elapsed))
+
+  data.exit_gracefully()
+
   return (elapsed, speed)
 
 def evaluate_final_alexnet():
