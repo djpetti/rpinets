@@ -122,10 +122,10 @@ class ImageGetter(object):
       # some pruning.
       if self._test_set.prune_images(self._synsets):
         logger.info("Updating test database file...")
-        self._test_set.save_images(self.__load_datasets_from)
+        self._test_set.save_images(self.__load_datasets_from + "_testing.pkl")
       if self._train_set.prune_images(self._synsets):
         logger.info("Updating train database file...")
-        self._train_set.save_images(self.__load_datasets_from)
+        self._train_set.save_images(self.__load_datasets_from + "_training.pkl")
 
     else:
       train, test = self.__split_train_test_images(test_percentage)
@@ -791,10 +791,14 @@ class _Dataset(object):
 
     # Remove anything that's not in it.
     removed_image = False
+    to_remove = []
     for wnid, url in self.__images:
       if (wnid, url) not in valid:
-        self.__images.remove((wnid, url))
+        to_remove.append((wnid, url))
         removed_image = True
+
+    for pair in to_remove:
+      self.__images.remove(pair)
 
     return removed_image
 
