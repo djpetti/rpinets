@@ -261,6 +261,39 @@ class DiskCache(Cache):
     # Make sure we stay within the size constraint.
     self.__maintain_size()
 
+  def __do_get(self, label, name):
+    """ Gets an image from the cache. It does not check if an image is actually
+    in the cache.
+    Args:
+      label: The label of the image.
+      name: The name of the image.
+    Returns: The image data, or None if the image (or label) doesn't exist in
+             the cache. """
+    # Get the image offset and size.
+    offset, size = self.__synsets[label][name]
+
+    # Read and decode the image data.
+    self.__data_file.seek(offset)
+    raw_data = self.__data_file.read(size)
+    file_bytes = np.asarray(bytearray(raw_data), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.CV_LOAD_IMAGE_UNCHANGED)
+
+    return image
+
+  def is_in_cache(self, label, name):
+    """ Quickly tests if an image is in the cache.
+    Args:
+      label: The label of the image to check.
+      name: The name of the image to check.
+    Returns:
+      True if the image is in the cache, False otherwise. """
+    if label not in self.__synsets:
+      return False
+    if name not in self.__synsets[label]:
+      return False
+
+    return True
+
   def get(self, synset, name):
     """ Gets an image from the cache.
     Args:
@@ -271,21 +304,62 @@ class DiskCache(Cache):
     # Flush any pending writes to the file before we try to read.
     self.__data_file.flush()
 
-    if synset not in self.__synsets:
+    if not self.is_in_cache(synset, name):
       return None
-    if name not in self.__synsets[synset]:
-      return None
+    return self.__do_get(synset, name)
 
-    # Get the image offset and size.
-    offset, size = self.__synsets[synset][name]
+  def bulk_get(self, image_pairs):
+    """ Gets a large number of images from the cache at once.
+    For a large batch of images, this can be a lot faster than running get
+    individually.
+    Args:
+      image_pairs: Set of (synset, name) pairs for each image to load.
+    Returns:
+      A dictionary mapping the unique IDs of loaded images to the actual image
+      data, and a list of the unique ID's of images that were not found. """
+    def compare_offsets(image1_pair, image2_pair):
+      """ Compares the offsets of two images in the file.
+      Args:
+        image1_pair: The (label, name) pair of the first image.
+        image2_pair: The (label, name) pair of the second image.
+      Returns:
+        True if image1 has a smaller offset than image2, False otherwise. """
+      label1, name1 = image1_pair
+      label2, name2 = image2_pair
 
-    # Read and decode the image data.
-    self.__data_file.seek(offset)
-    raw_data = self.__data_file.read(size)
-    file_bytes = np.asarray(bytearray(raw_data), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, cv2.CV_LOAD_IMAGE_UNCHANGED)
+      offset1, _ = self.__synsets[label1][name1]
+      offset2, _ = self.__synsets[label2][name2]
 
-    return image
+      return offset1 < offset2
+
+    # Flush any pending writes to the file before we try to read.
+    self.__data_file.flush()
+
+    # Process images that don't exist.
+    not_found = []
+    to_remove = []
+    for label, name in image_pairs:
+      img_id = "%s_%s" % (label, name)
+      if not self.is_in_cache(label, name):
+        not_found.append(img_id)
+        to_remove.append((label, name))
+
+    for pair in to_remove:
+      image_pairs.remove(pair)
+
+    # Sort the images in the order of their offsets in the file. This is so the
+    # needle on the disk doesn't have to jump around everywhere.
+    sorted_pairs = sorted(image_pairs, cmp=compare_offsets)
+
+    # Now go and load everything in that order.
+    loaded = {}
+    for label, name in sorted_pairs:
+      image = self.__do_get(label, name)
+      assert image is not None
+      img_id = "%s_%s" % (label, name)
+      loaded[img_id] = image
+
+    return loaded, not_found
 
   def get_cache_size(self):
     """

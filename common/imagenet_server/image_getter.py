@@ -668,9 +668,11 @@ class _Dataset(object):
     need_images = self._mem_buffer.get_max_images() - self.__num_downloading
     logger.debug("Need to start downloading %d additional images." %
                  (need_images))
+
     loaded_from_cache = 0
+    to_load = set()
     for _ in range(0, need_images):
-      loaded_from_cache += self._load_random_image()
+      loaded_from_cache += self._load_random_image(to_load)
     self.__num_downloading += need_images
 
     # Wait for 1 batch worth of the downloads to complete,
@@ -700,58 +702,63 @@ class _Dataset(object):
           logger.debug("Item already removed: %s" % (wnid))
 
         # Load a new image to replace it.
-        loaded_from_cache += self._load_random_image()
+        loaded_from_cache += self._load_random_image(to_load)
 
       downloaded = self._download_manager.update()
       successfully_downloaded += downloaded + loaded_from_cache
 
       time.sleep(0.2)
 
-    logger.debug("Loaded %d images from cache." % (loaded_from_cache))
+    # Actually bulk-load all the images.
+    logger.debug("Loading %d images from cache..." % (len(to_load)))
+    self._get_cached_images(to_load)
     logger.debug("Finished downloading.")
+
     self.__num_downloading -= self._batch_size
     return self._mem_buffer.get_batch(), to_remove
 
-  def _load_random_image(self):
+  def _load_random_image(self, load_from_cache):
     """ Loads a random image from either the cache or the internet. If loading
-    from the internet, it adds it to the download manager, otherwise, it adds
-    them to the memory buffer.
+    from the internet, it adds it to the download manager. If loading from the
+    cache, it adds the name to the load_from_cache set, in anticipation that the
+    actual image will be bulk-loaded later.
+    Args:
+      load_from_cache: A set of images to load from the cache. It will add to
+                       this if a particular image it selects is in the cache.
     Returns:
       How many images it loaded from the cache successfully. """
     wnid, url = self._pick_random_image()
     synset, number = wnid.split("_")
 
-    image = self._get_cached_image(synset, number)
-    if image is None:
-      # We have to download the image instead.
-      if not self._download_manager.download_new(synset, number, url):
-        # We're already downloading that image.
-        logger.info("Already downloading %s. Picking new one..." % (wnid))
-        return self._load_random_image()
-      return 0
+    if self._cache.is_in_cache(synset, number):
+      # It's in the cache, so just mark that we want to load it later.
+      load_from_cache.add((synset, number))
+      return 1
 
-    # Cache hit.
-    self._mem_buffer.add(image, number, synset)
-    return 1
+    # We have to download the image instead.
+    if not self._download_manager.download_new(synset, number, url):
+      # We're already downloading that image.
+      logger.info("Already downloading %s. Picking new one..." % (wnid))
+      return self._load_random_image(load_from_cache)
 
-  def _get_cached_image(self, synset, image_number):
-    """ Checks if an image is in the cache, and returns it.
+    return 0
+
+  def _get_cached_images(self, load_from_cache):
+    """ Bulk-loads a bunch of image data from the cache, pre-processes them, and
+    puts the in the memory buffer.
     Args:
-      synset: The synset of the image.
-      image_number: The image number in the synset.
-    Returns:
-      The actual image data, or None if the image is not in the cache. """
-    # First check in the cache for the image.
-    cached_image = self._cache.get(synset, image_number)
-    if cached_image is not None:
-      # We had a cached copy, so we're done.
+      load_from_cache: The set of images to load. """
+    loaded, not_found = self._cache.bulk_get(load_from_cache)
+    assert not not_found
+
+    for img_id, image in loaded.iteritems():
       # Select a patch.
-      patches = data_augmentation.extract_patches(cached_image)
-      cached_image = patches[random.randint(0, len(patches) - 1)]
+      patches = data_augmentation.extract_patches(image)
+      image = patches[random.randint(0, len(patches) - 1)]
 
-      return cached_image
-
-    return None
+      # Add it to the buffer.
+      label, name = img_id.split("_")
+      self._mem_buffer.add(image, name, label)
 
   def get_images(self):
     """ Gets all the images in the dataset. """
@@ -842,33 +849,18 @@ class _TestingDataset(_Dataset):
                                                         self._mem_buffer,
                                                         all_patches=True)
 
-  def _load_random_image(self):
-    """ See superclass documentation. This override is necessary to deal with
-    multiple patches. """
-    wnid, url = self._pick_random_image()
-    synset, number = wnid.split("_")
+  def _get_cached_images(self, load_from_cache):
+    """ Bulk-loads a bunch of image data from the cache, pre-processes them, and
+    puts the in the memory buffer.
+    Args:
+      load_from_cache: The set of images to load. """
+    loaded, not_found = self._cache.bulk_get(load_from_cache)
+    assert not not_found
 
-    patches = self._get_cached_image(synset, number)
-    if patches is None:
-      # We have to download the image instead.
-      self._download_manager.download_new(synset, number, url)
-      return 0
+    for img_id, image in loaded.iteritems():
+      # Add all the patches.
+      patches = data_augmentation.extract_patches(image)
 
-    # Cache hit.
-    self._mem_buffer.add_patches(patches, number, synset)
-    return 1
-
-  def _get_cached_image(self, synset, image_number):
-    """ See superclass documentation. This override is necessary to deal with
-    multiple patches. """
-    # First check in the cache for the image.
-    cached_image = self._cache.get(synset, image_number)
-    if cached_image is not None:
-      # We had a cached copy, so we're done.
-      logger.debug("Found image in cache: %s_%s" % (synset, image_number))
-
-      # Extract patches.
-      return data_augmentation.extract_patches(cached_image)
-
-    return None
-
+      # Add it to the buffer.
+      label, name = img_id.split("_")
+      self._mem_buffer.add_patches(patches, name, label)

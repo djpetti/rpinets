@@ -149,3 +149,33 @@ class DiskCacheTest(unittest.TestCase):
       self.assertTrue(np.array_equal(image, got_image))
     got_image = self.__cache.get("synset1", "last_image")
     self.assertTrue(np.array_equal(self.__images[-1], got_image))
+
+  def test_bulk_get(self):
+    """ Tests that we can use the bulk_get method to load a bunch of data from
+    the cache at once. """
+    # Store all the images.
+    image_pairs = set()
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      self.__cache.add(image, name, "synset1")
+      image_pairs.add(("synset1", name))
+
+    # Add another image to image_pairs that doesn't exist.
+    bad_name = "image%d" % (len(self.__images))
+    bad_id = "%s_%s" % ("synset1", bad_name)
+    image_pairs.add(("synset1", bad_name))
+
+    # Load everything.
+    loaded, not_found = self.__cache.bulk_get(image_pairs)
+
+    # Check that it found everything it should.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+
+    # Check that it didn't find the last one.
+    self.assertEqual(1, len(not_found))
+    self.assertEqual(bad_id, not_found[0])
