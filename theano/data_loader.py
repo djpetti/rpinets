@@ -302,8 +302,7 @@ class Ilsvrc12(Loader):
     self.__training_buffer, labels = \
         self.__image_getter.get_random_train_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    mean = np.mean(self.__training_buffer)
-    self.__training_buffer -= mean
+    mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
     logger.debug("Training mean: %f" % mean)
 
     # Convert labels.
@@ -317,7 +316,6 @@ class Ilsvrc12(Loader):
     #cv2.waitKey(1)
 
     self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
-    # Standard AlexNet procedure is to subtract the mean.
     self.__training_buffer -= mean
 
   def __load_next_testing_batch(self):
@@ -325,7 +323,7 @@ class Ilsvrc12(Loader):
     self.__testing_buffer, labels = \
         self.__image_getter.get_random_test_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    mean = np.mean(self.__testing_buffer)
+    mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
     logger.debug("Testing mean: %f" % mean)
 
     # Convert labels.
@@ -339,7 +337,6 @@ class Ilsvrc12(Loader):
     #cv2.waitKey(1)
 
     self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
-    # Standard AlexNet procedure is to subtract the mean.
     self.__testing_buffer -= mean
 
   def __run_train_loader_thread(self):
