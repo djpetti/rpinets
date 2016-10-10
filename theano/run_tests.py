@@ -165,7 +165,7 @@ def run_imagenet_test():
   train_batch_index = 0
   test_batch_index = 0
 
-  while iterations < 50000:
+  while iterations < 150000:
     logger.debug("Train index, size: %d, %d" % (train_batch_index,
                                                 data.get_train_set_size()))
     logger.debug("Test index, size: %d, %d" % (test_batch_index,
@@ -174,14 +174,14 @@ def run_imagenet_test():
     # Swap in new data if we need to.
     if (train_batch_index + 1) * batch_size > data.get_train_set_size():
       train_batch_index = 0
-      logging.info("Getting train set.")
+      logger.info("Getting train set.")
       train = data.get_train_set()
-      logging.info("Got train set.")
+      logger.info("Got train set.")
     # Swap in new data if we need to.
     test_set_one_patch = data.get_test_set_size() / 10
     if (test_batch_index + 1) * batch_size > test_set_one_patch:
       test_batch_index = 0
-      logging.info("Getting test set.")
+      logger.info("Getting test set.")
       test = data.get_test_set()
       cpu_labels = data.get_non_shared_test_set()[:]
       logger.info("Got test set.")
@@ -193,16 +193,16 @@ def run_imagenet_test():
       top_one, top_five = network.test(test_batch_index,
                                        cpu_labels[label_index:label_index + \
                                                               batch_size])
-      print "Theano: step %d, testing top 1: %f, testing top 5: %f" % \
-            (iterations, top_one, top_five)
+      logger.info("Step %d, testing top 1: %f, testing top 5: %f" % \
+                  (iterations, top_one, top_five))
 
       test_batch_index += 1
 
     cost, rate, step = network.train(train_batch_index)
-    print "Training cost: %f, learning rate: %f, step: %d" % \
-            (cost, rate, step)
+    logger.info("Training cost: %f, learning rate: %f, step: %d" % \
+                (cost, rate, step))
 
-    if iterations % 50 == 0:
+    if iterations % 100 == 0:
       print "Saving network..."
       network.save(save_file)
       # Save synset data as well.
