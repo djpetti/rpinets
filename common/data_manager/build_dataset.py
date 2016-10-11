@@ -6,6 +6,7 @@
 
 import argparse
 import os
+import random
 import sys
 
 import cv2
@@ -16,40 +17,22 @@ import images
 import utils
 
 
-def _process_label(label, path, disk_cache, size):
+def _process_label(label, path, image_list, size):
   """ Processes all the images in a single label.
   Args:
     label: The name of the label.
     path: The base path where all the label directories are.
-    disk_cache: The DiskCache to add image data to.
-    size: The x and y size of each image in the dataset.
-  Returns:
-    A list of the images processed. Each item is a tuple with the ID of the
-    image, formed by joining the label and the filename together with an
-    underscore, and None, which will represent the URL attribute for insertion
-    into a Dataset. """
+    image_list: The list containing tuples of the lable, name, and path
+    for all the images loaded so far. This will be added to.
+    size: The x and y size of each image in the dataset. """
   print "Processing label: %s" % (label)
 
   label_path = os.path.join(path, label)
 
-  image_names = []
   for image in os.listdir(label_path):
     # Load the image from the disk.
     image_path = os.path.join(label_path, image)
-    image_data = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if image_data is None:
-      print "WARNING: Failed to load image: '%s'." % (image_path)
-      continue
-
-    # Reshape the image.
-    image_data = images.reshape_image(image_data, size)
-
-    disk_cache.add(image_data, image, label)
-
-    image_id = utils.make_img_id(label, image)
-    image_names.append((image_id, None))
-
-  return image_names
+    image_list.append((label, image, image_path))
 
 def _build_dataset(path, disk_cache, size):
   """ Builds a new dataset, and adds images to the disk cache.
@@ -75,11 +58,34 @@ def _build_dataset(path, disk_cache, size):
       continue
 
     # Read the contents of the directory.
-    dataset_images.extend(_process_label(label, path, disk_cache, size))
+    _process_label(label, path, dataset_images, size)
+
+  # Shuffle the images, and load them into the cache randomly. This is so that
+  # contiguous loading from the cache actually works.
+  print "Building image cache..."
+  random.shuffle(dataset_images)
+
+  # Load them into the cache.
+  for label, name, path in dataset_images:
+    image_data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if image_data is None:
+      print "WARNING: Failed to load image: '%s'." % (image_path)
+      continue
+
+    # Reshape the image.
+    image_data = images.reshape_image(image_data, size)
+    # Add to the cache.
+    disk_cache.add(image_data, name, label)
 
   # Create and save a dataset. (The batch size and image size arguments don't
   # really matter here.)
-  data = dataset.Dataset(dataset_images, disk_cache, 0, (0, 0, 0))
+  dataset_entries = []
+  for label, name, _ in dataset_images:
+    img_id = utils.make_img_id(label, name)
+    # The None in the tuple is because there are no URLs corresponding to these
+    # images.
+    dataset_entries.append((img_id, None))
+  data = dataset.Dataset(dataset_entries, disk_cache, 0, (0, 0, 0))
   return data
 
 def convert_dataset(location, size):
