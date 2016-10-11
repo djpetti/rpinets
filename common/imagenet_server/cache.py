@@ -86,7 +86,8 @@ class DiskCache(Cache):
     # Write out the data map file.
     cache_map_location = os.path.join(self.__location, "cache_map.pkl")
     map_file = open(cache_map_location, "wb")
-    pickle.dump((self.__synsets, self.__free_start, self.__free_end), map_file)
+    pickle.dump((self.__synsets, self.__offset, self.__free_start,
+                 self.__free_end), map_file)
     map_file.close()
 
   def __update_free_counter(self):
@@ -151,7 +152,8 @@ class DiskCache(Cache):
     if os.path.exists(cache_map_location):
       logger.debug("Loading %s..." % (cache_map_location))
       cache_map_file = file(cache_map_location, "rb")
-      self.__synsets, self.__free_start, self.__free_end = pickle.load(cache_map_file)
+      self.__synsets, self.__offsets, self.__free_start, self.__free_end = \
+          pickle.load(cache_map_file)
       cache_map_file.close()
 
       logger.debug("Free start, free end: %d, %d" % (self.__free_start,
