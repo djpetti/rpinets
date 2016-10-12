@@ -179,21 +179,41 @@ def reshape_image(image, shape):
     height, width = image.shape
 
   logger.debug("Original image shape: (%d, %d)" % (width, height))
-  if width != height:
-    if width > height:
-      # Landscape
-      length = height
-      crop_left = (width - height) / 2
-      crop_top = 0
-    elif height > width:
-      # Portrait.
-      length = width
-      crop_top = (height - width) / 2
-      crop_left = 0
-    image = image[crop_top:(length + crop_top), crop_left:(length + crop_left)]
+  target_width, target_height = shape
 
-  # Set a proper size. At this point, we'll do 256x256, which should be enough
-  # resolution for simple classification.
+  # Find the largest we can make the initial crop.
+  multiplier = 1
+  if width > target_width:
+    multiplier = width / target_width
+  elif height > target_height:
+    multiplier = height / target_height
+  target_width *= multiplier
+  target_height *= multiplier
+
+  crop_width = target_width
+  crop_height = target_height
+  # Our goal here is to keep the same aspect ratio as the original.
+  if width <= target_width:
+    # We need to reduce the width for our initial cropping.
+    crop_width = width
+    crop_height = target_height * (float(crop_width) / target_width)
+  if height <= target_height:
+    # We need to reduce the height for our initial cropping.
+    crop_height = height
+    crop_width = target_width * (float(crop_height) / target_height)
+
+  crop_width = int(crop_width)
+  crop_height = int(crop_height)
+
+  logger.debug("Cropping to size: (%d, %d)" % (crop_width, crop_height))
+
+  # Crop the image.
+  crop_left = (width - crop_width) / 2
+  crop_top = (height - crop_height) / 2
+  image = image[crop_top:(crop_height + crop_top),
+                crop_left:(crop_width + crop_left)]
+
+  # Set a proper size, which should just be directly scaling up or down.
   image = cv2.resize(image, shape)
 
   return image
