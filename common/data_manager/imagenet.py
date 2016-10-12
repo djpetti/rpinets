@@ -6,6 +6,7 @@ import random
 import urllib2
 
 import dataset
+import image_getter
 import utils
 
 
@@ -65,7 +66,7 @@ def _write_url_file(images, separator=" "):
   return file_data
 
 
-class ImagenetGetter(ImageGetter):
+class ImagenetGetter(image_getter.ImageGetter):
   """ Image getter specialization specifically for loading data from Imagenet.
   """
 

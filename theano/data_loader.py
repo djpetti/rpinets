@@ -407,13 +407,13 @@ class DataManagerLoader(Loader):
     # Load a new set for it.
     self.__swap_in_training_data()
 
-    return super(Ilsvrc12, self).get_train_set()
+    return super(DataManagerLoader, self).get_train_set()
 
   def get_test_set(self):
     # Load a new set for it.
     self.__swap_in_testing_data()
 
-    return super(Ilsvrc12, self).get_test_set()
+    return super(DataManagerLoader, self).get_test_set()
 
   def get_non_shared_test_set(self):
     """ Gets a non-shared version of the test set, useful for AlexNet. """
