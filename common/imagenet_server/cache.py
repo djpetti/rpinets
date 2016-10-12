@@ -86,7 +86,7 @@ class DiskCache(Cache):
     # Write out the data map file.
     cache_map_location = os.path.join(self.__location, "cache_map.pkl")
     map_file = open(cache_map_location, "wb")
-    pickle.dump((self.__synsets, self.__offset, self.__free_start,
+    pickle.dump((self.__synsets, self.__offsets, self.__free_start,
                  self.__free_end), map_file)
     map_file.close()
 
@@ -316,7 +316,7 @@ class DiskCache(Cache):
       image_pairs: Set of (synset, name) pairs for each image to load.
     Returns:
       A dictionary mapping the unique IDs of loaded images to the actual image
-      data, and a list of the unique ID's of images that were not found. """
+      data, and a list of the unique IDs of images that were not found. """
     def compare_offsets(image1_pair, image2_pair):
       """ Compares the offsets of two images in the file.
       Args:
@@ -360,6 +360,76 @@ class DiskCache(Cache):
       loaded[img_id] = image
 
     return loaded, not_found
+
+  def get_sequential(self, start_label, start_name, number_of_images):
+    """ Gets a number of images that are stored sequentially in the cache. This
+    is the fastest way to load a large number of images from the cache.
+    Args:
+      start_label: The label of the image to start form.
+      start_name: The name of the image to start from.
+      number_of_images: Total number of images to load, including the start one.
+    Returns:
+      A dictionary mapping unique IDs of loaded images to the actual image data.
+      It may not contain all the images requested, if there is not sufficient
+      data in the cache. It will also return None if the first image is not in
+      the cache. """
+    if not self.is_in_cache(start_label, start_name):
+      return None
+
+    # Flush any pending writes to the file before we try to read.
+    self.__data_file.flush()
+
+    images = {}
+
+    # Get the size of the data file.
+    cache_data_location = os.path.join(self.__location, "cache_data.dat")
+    total_size = os.path.getsize(cache_data_location)
+
+    # Compute the offsets for the chunk of the file we need to read.
+    start_offset, size = self.__synsets[start_label][start_name]
+    end_offset = start_offset
+    num_loaded = 0
+    to_load = []
+
+    while (num_loaded < number_of_images and end_offset < total_size):
+      # Find the next image.
+      if end_offset not in self.__offsets:
+        raise RuntimeError("Unexpected free space in cache. Please repair the \
+                            cache.")
+      img_id = self.__offsets[end_offset]
+      label, name = img_id.split("_")
+      end_offset, size = self.__synsets[label][name]
+
+      old_end_offset = end_offset
+      end_offset = end_offset + size
+      if end_offset == self.__free_start:
+        # We're in the free space. Just skip over this.
+        end_offset = self.__free_end
+      elif (end_offset > self.__free_start and end_offset < self.__free_end):
+        raise RuntimeError("Data overlaps free space in cache. Please repair \
+                            the cache.")
+
+      # We want to account for any free space we skipped here when we add the
+      # current image.
+      to_load.append((img_id, end_offset - old_end_offset))
+
+      num_loaded += 1
+
+    # Read that part of the file.
+    logger.debug("Reading file from %d to %d." % (start_offset, end_offset))
+    self.__data_file.seek(start_offset)
+    raw_data = self.__data_file.read(end_offset - start_offset)
+
+    # Load the actual image data.
+    raw_data = np.asarray(bytearray(raw_data), dtype=np.uint8)
+    for img_id, size in to_load:
+      # OpenCV knows when the image ends, so we don't have to worry about bounding
+      # our slice on one side.
+      image = cv2.imdecode(raw_data, cv2.CV_LOAD_IMAGE_UNCHANGED)
+      raw_data = raw_data[size:]
+      images[img_id] = image
+
+    return images
 
   def get_cache_size(self):
     """
