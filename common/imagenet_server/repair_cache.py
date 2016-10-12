@@ -67,15 +67,23 @@ def repair_cache(cache_map, cache_data):
 
     # There should be another image here.
     if offset not in offsets:
-      print "ERROR: Unexpected empty space in cache. (Repaired.)"
+      print "ERROR: Unexpected empty space in cache."
       space_start = offset
       # Scan forward until we find the end of the empty region.
       while offset not in offsets:
+        if offset >= total_size:
+          # We read off the end of the cache, in which case we can just cut the
+          # file here.
+          data_file.seek(space_start)
+          data_file.truncate()
+          break
+
         offset += 1
       space_end = offset
 
       # Move everything to cover the empty region.
       _shift_file_left(data_file, space_end, space_end - space_start)
+      print "(Repaired.)"
 
     # Go to the next image.
     img_id = offsets[offset]
