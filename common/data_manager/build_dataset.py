@@ -65,7 +65,11 @@ def _build_dataset(path, disk_cache, size):
   print "Building image cache..."
   random.shuffle(dataset_images)
 
+  print "Processing %d images..." % (len(dataset_images))
+
   # Load them into the cache.
+  processed = 0
+  last_percentage = 0
   for label, name, path in dataset_images:
     image_data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if image_data is None:
@@ -76,6 +80,14 @@ def _build_dataset(path, disk_cache, size):
     image_data = images.reshape_image(image_data, size)
     # Add to the cache.
     disk_cache.add(image_data, name, label)
+
+    # Print percentage done.
+    percentage = int(float(processed) / len(dataset_images) * 100)
+    if percentage != last_percentage:
+      print "(%d percent done.)" % (percentage)
+      last_percentage = percentage
+
+    processed += 1
 
   # Create and save a dataset. (The batch size and image size arguments don't
   # really matter here.)
@@ -88,14 +100,15 @@ def _build_dataset(path, disk_cache, size):
   data = dataset.Dataset(dataset_entries, disk_cache, 0, (0, 0, 0))
   return data
 
-def convert_dataset(location, size):
+def convert_dataset(location, size, output):
   """ Converts a dataset to a format that's usable by data_manager.
   Args:
     location: The location of the dataset to convert.
-    size: The x and y sizes of each image in the dataset. """
+    size: The x and y sizes of each image in the dataset.
+    output: The location to write output files to. """
   # The conversion works by reading all the images and adding them to a
   # DiskCache.
-  disk_cache = cache.DiskCache(".")
+  disk_cache = cache.DiskCache(output)
 
   # Individual categories are contained in the train and test directories.
   train_path = os.path.join(location, "train")
@@ -105,9 +118,11 @@ def convert_dataset(location, size):
 
   # Save the datasets to the disk.
   print "Saving dataset_train.pkl..."
-  train_set.save_images("dataset_training.pkl")
+  train_path = os.path.join(output, "dataset_training.pkl")
+  train_set.save_images(train_path)
   print "Saving dataset_test.pkl..."
-  test_set.save_images("dataset_testing.pkl")
+  test_path = os.path.join(output, "dataset_testing.pkl")
+  test_set.save_images(test_path)
 
   print "Done."
 
@@ -118,9 +133,11 @@ def main():
   parser.add_argument("width", type=int, help="The width of converted images.")
   parser.add_argument("height", type=int, help="The height of converted images.")
   parser.add_argument("dataset", help="The location of the dataset to convert.")
+  parser.add_argument("-o", "--output", default=".",
+                      help="Location to write output to.")
   args = parser.parse_args()
 
-  convert_dataset(args.dataset, (args.width, args.height))
+  convert_dataset(args.dataset, (args.width, args.height), args.output)
 
 
 if __name__ == "__main__":
