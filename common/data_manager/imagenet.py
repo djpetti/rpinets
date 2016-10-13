@@ -1,16 +1,13 @@
-import cPickle as pickle
 import json
 import logging
 import operator
 import os
 import random
-import time
 import urllib2
 
-from randomset import RandomSet
-import cache
-import data_augmentation
-import downloader
+import dataset
+import image_getter
+import utils
 
 
 logger = logging.getLogger(__name__)
@@ -69,28 +66,19 @@ def _write_url_file(images, separator=" "):
   return file_data
 
 
-class ImageGetter(object):
-  """ Gets random sets of images for use in training and testing. """
+class ImagenetGetter(image_getter.ImageGetter):
+  """ Image getter specialization specifically for loading data from Imagenet.
+  """
 
-  def __init__(self, synset_location, cache_location, batch_size,
-               preload_batches=1, test_percentage=0.1, load_datasets_from=None):
+  def __init__(self, synset_location, *args, **kwargs):
     """
     Args:
       synset_location: Where to save synsets. Will be created if it doesn't
-      exist.
-      cache_location: Where to cache downloaded images. Will be created if it
-      doesn't exist.
-      batch_size: The size of each batch to load.
-      preload_batches: The number of batches that will be preloaded. Increasing
-      this number uses more RAM, but can greatly increase performance.
-      test_percentage: The percentage of the total images that will be used for
-      testing.
-      load_datasets_from: The common part of the path to the files that we want
-      to load the training and testing datasets from. If this is not specified,
-      it will create new training and testing sets. """
-    self._cache = cache.DiskCache(cache_location, 50000000000)
-    self.__batch_size = batch_size
-
+                       exist.
+      For all other arguments, see the superclass version of this method.
+      NOTE: If load_datasets_from is not specified, it will create new training
+      and testing sets. """
+    # Initialize the synsets before initializing the datasets.
     self._synset_location = synset_location
 
     self._synsets = {}
@@ -103,43 +91,36 @@ class ImageGetter(object):
       self.__synset_sizes[synset] = len(urls)
       self.__total_images += len(urls)
 
-    self.__load_datasets_from = load_datasets_from
+    super(ImagenetGetter, self).__init__(*args, **kwargs)
 
+  def _init_datasets(self):
+    """ Initializes the training and testing datasets. """
     # Make internal datasets for training and testing.
-    if (self.__load_datasets_from and \
-        (os.path.exists(self.__load_datasets_from + "_training.pkl") and \
-         os.path.exists(self.__load_datasets_from + "_testing.pkl"))):
+    if self._load_datasets_from:
       # Initialize empty datasets.
-      self._train_set = _TrainingDataset(set(), self._cache, self.__batch_size,
-                                         preload_batches=preload_batches)
-      self._test_set = _TestingDataset(set(), self._cache, self.__batch_size,
-                                       preload_batches=preload_batches)
-
+      self._make_new_datasets(set(), set())
       # Use the saved datasets instead of making new ones.
-      self.load_datasets(self.__load_datasets_from)
+      self.load_datasets()
 
       # We might have deleted stuff since we last saved it, so we want to do
       # some pruning.
       if self._test_set.prune_images(self._synsets):
         logger.info("Updating test database file...")
-        self._test_set.save_images(self.__load_datasets_from + "_testing.pkl")
+        self._test_set.save_images()
       if self._train_set.prune_images(self._synsets):
         logger.info("Updating train database file...")
-        self._train_set.save_images(self.__load_datasets_from + "_training.pkl")
+        self._train_set.save_images()
 
     else:
       train, test = self.__split_train_test_images(test_percentage)
-      self._train_set = _TrainingDataset(train, self._cache, self.__batch_size,
-                                         preload_batches=preload_batches)
-      self._test_set = _TestingDataset(test, self._cache, self.__batch_size,
-                                       preload_batches=preload_batches)
+      self._make_new_datasets(train, test)
 
-      if self.__load_datasets_from:
+      if self._load_datasets_from:
         # If we specified a path to load datasets from, make them here for next
         # time.
         logger.warning("Datasets not found. Making new ones and saving in %s." \
-                       % (self.__load_datasets_from))
-        self.save_datasets(self.__load_datasets_from)
+                       % (self._load_datasets_from))
+        self.save_datasets()
 
   def _populate_synsets(self):
     """ Populates the synset dictionary. """
@@ -439,7 +420,7 @@ class ImageGetter(object):
       bad_images: A list of the images to remove. Should contain tuples of the
       image WNID and URL. """
     for wnid, url in bad_images:
-      synset, _ = wnid.split("_")
+      synset, _ = utils.split_img_id(wnid)
 
       # Load the proper file.
       file_name = "%s.json" % (synset)
@@ -484,26 +465,8 @@ class ImageGetter(object):
 
     return images
 
-  def save_datasets(self, file_prefix):
-    """ Saves the datasets to the disk.
-    Args:
-      file_prefix: The first part of the filename for each dataset.
-      "_training.pkl" and "_testing.pkl" will be appended to it for each
-      individual datatset. """
-    self._train_set.save_images(file_prefix + "_training.pkl")
-    self._test_set.save_images(file_prefix + "_testing.pkl")
 
-  def load_datasets(self, file_prefix):
-    """ Loads the datasets from the disk.
-    Args:
-      file_prefix: The first part of the filename for each dataset.
-      "_training.pkl" and "_testing.pkl" will be appended to it for each
-      individual datatset. """
-    self._train_set.load_images(file_prefix + "_training.pkl")
-    self._test_set.load_images(file_prefix + "_testing.pkl")
-
-
-class SynsetListImageGetter(ImageGetter):
+class SynsetListImagenetGetter(ImagenetGetter):
   """ Works like an ImageGetter, but only loads images from a predefined set of
   synsets. """
 
@@ -515,7 +478,7 @@ class SynsetListImageGetter(ImageGetter):
 
     self.__synset_names = set(synsets)
 
-    super(SynsetListImageGetter, self).__init__(*args, **kwargs)
+    super(SynsetListImagenetGetter, self).__init__(*args, **kwargs)
 
   def _populate_synsets(self):
     """ See documentation for superclass method. """
@@ -533,8 +496,8 @@ class SynsetListImageGetter(ImageGetter):
     self._get_synset_urls(synsets)
 
 
-class SynsetFileImageGetter(SynsetListImageGetter):
-  """ Works like an ImageGetter, but only loads images from a predefined list of
+class SynsetFileImagetGetter(SynsetListImagenetGetter):
+  """ Works like an ImagenetGetter, but only loads images from a predefined list of
   synsets specified in a file. """
 
   def __init__(self, synset_path, *args, **kwargs):
@@ -547,10 +510,10 @@ class SynsetFileImageGetter(SynsetListImageGetter):
     synsets = [synset.rstrip("\n") for synset in synset_file]
     synset_file.close()
 
-    super(SynsetFileImageGetter, self).__init__(synsets, *args, **kwargs)
+    super(SynsetFileImagenetGetter, self).__init__(synsets, *args, **kwargs)
 
 
-class FilteredImageGetter(ImageGetter):
+class FilteredImagenetGetter(ImagenetGetter):
   """ Works like an ImageGetter, but only loads images from a specific
   pre-defined file containing image names and their URLs. """
 
@@ -566,7 +529,7 @@ class FilteredImageGetter(ImageGetter):
     self.__url_file = url_file
     self.__remove_bad = remove_bad
 
-    super(FilteredImageGetter, self).__init__(None, cache_location, batch_size, **kwargs)
+    super(FilteredImagenetGetter, self).__init__(None, cache_location, batch_size, **kwargs)
 
   def _populate_synsets(self):
     """ Populates the synsets dict. """
@@ -576,7 +539,7 @@ class FilteredImageGetter(ImageGetter):
 
     # Separate it by synset and load it into the dictionary.
     for wnid, url in images:
-      synset, _ = wnid.split("_")
+      synset, _ = utils.split_img_id(wnid)
 
       if synset not in self._synsets:
         self._synsets[synset] = []
@@ -617,258 +580,3 @@ class FilteredImageGetter(ImageGetter):
       self.__write_url_file()
 
     return images
-
-
-class _Dataset(object):
-  """ Represents a single dataset, with a fixed group of images that it draws
-  randomly from. """
-
-  def __init__(self, images, disk_cache, batch_size):
-    """
-    Args:
-      images: The list of images that makes up this dataset. The list should
-      contain tuples with each image's WNID and URL.
-      disk_cache: The disk cache where we can store downloaded images.
-      batch_size: The size of each batch from this dataset. """
-    self.__images = RandomSet(images)
-    self._cache = disk_cache
-
-    self._batch_size = batch_size
-
-    # The number of images that we've currently requested be downloaded.
-    self.__num_downloading = 0
-
-    logger.info("Have %d total images in database." % (len(self.__images)))
-
-  def _pick_random_image(self):
-    """ Picks a random image from our database.
-    Returns:
-      wnid and url, and key of the image in the images map. """
-    # Pick a random image.
-    wnid, url = self.__images.get_random()
-
-    if wnid in self.__already_picked:
-      # This is a duplicate, pick another.
-      return self._pick_random_image()
-    self.__already_picked.add(wnid)
-
-    return wnid, url
-
-  def get_random_batch(self):
-    """ Loads a random batch of images from the whole dataset.
-    Returns:
-      The array of loaded images, and a list of the synsets each image belongs
-      to, as well as a list of all images that failed to download. """
-    logger.info("Getting batch.")
-
-    # Keeps track of images that were already used this batch.
-    self.__already_picked = set([])
-
-    # Try to download initial images.
-    need_images = self._mem_buffer.get_max_images() - self.__num_downloading
-    logger.debug("Need to start downloading %d additional images." %
-                 (need_images))
-    loaded_from_cache = 0
-    for _ in range(0, need_images):
-      loaded_from_cache += self._load_random_image()
-    self.__num_downloading += need_images
-
-    # Wait for 1 batch worth of the downloads to complete,
-    # replacing any ones that fail.
-    to_remove = []
-    successfully_downloaded = loaded_from_cache
-    while successfully_downloaded < self._batch_size:
-      failures = self._download_manager.get_failures()
-      if len(failures):
-        logger.debug("Replacing %d failed downloads." % (len(failures)))
-
-      # Remove failed images.
-      loaded_from_cache = 0
-      for synset, name, url in failures:
-        # Remove failed image.
-        wnid = "%s_%s" % (synset, name)
-
-        logger.info("Removing bad image %s, %s" % (wnid, url))
-
-        # Because we keep running downloader processes in the background through
-        # multiple calls to get_random_batch, it's possible that we could try to
-        # remove something twice.
-        if (wnid, url) in self.__images:
-          self.__images.remove((wnid, url))
-          to_remove.append((wnid, url))
-        else:
-          logger.debug("Item already removed: %s" % (wnid))
-
-        # Load a new image to replace it.
-        loaded_from_cache += self._load_random_image()
-
-      downloaded = self._download_manager.update()
-      successfully_downloaded += downloaded + loaded_from_cache
-
-      time.sleep(0.2)
-
-    logger.debug("Loaded %d images from cache." % (loaded_from_cache))
-    logger.debug("Finished downloading.")
-    self.__num_downloading -= self._batch_size
-    return self._mem_buffer.get_batch(), to_remove
-
-  def _load_random_image(self):
-    """ Loads a random image from either the cache or the internet. If loading
-    from the internet, it adds it to the download manager, otherwise, it adds
-    them to the memory buffer.
-    Returns:
-      How many images it loaded from the cache successfully. """
-    wnid, url = self._pick_random_image()
-    synset, number = wnid.split("_")
-
-    image = self._get_cached_image(synset, number)
-    if image is None:
-      # We have to download the image instead.
-      if not self._download_manager.download_new(synset, number, url):
-        # We're already downloading that image.
-        logger.info("Already downloading %s. Picking new one..." % (wnid))
-        return self._load_random_image()
-      return 0
-
-    # Cache hit.
-    self._mem_buffer.add(image, number, synset)
-    return 1
-
-  def _get_cached_image(self, synset, image_number):
-    """ Checks if an image is in the cache, and returns it.
-    Args:
-      synset: The synset of the image.
-      image_number: The image number in the synset.
-    Returns:
-      The actual image data, or None if the image is not in the cache. """
-    # First check in the cache for the image.
-    cached_image = self._cache.get(synset, image_number)
-    if cached_image is not None:
-      # We had a cached copy, so we're done.
-      # Select a patch.
-      patches = data_augmentation.extract_patches(cached_image)
-      cached_image = patches[random.randint(0, len(patches) - 1)]
-
-      return cached_image
-
-    return None
-
-  def get_images(self):
-    """ Gets all the images in the dataset. """
-    return self.__images
-
-  def save_images(self, filename):
-    """ Saves the set of images that this dataset contains to a file.
-    Args:
-      filename: The name of the file to write the list of images to. """
-    image_file = open(filename, "wb")
-    logger.debug("Saving dataset to file: %s" % (filename))
-    pickle.dump(self.__images, image_file)
-    image_file.close()
-
-  def load_images(self, filename):
-    """ Loads the set of images that this dataset contains from a file.
-    Args:
-      filename: The name of the file to read the list of images from. """
-    image_file = file(filename, "rb")
-    logger.info("Loading dataset from file: %s" % (filename))
-    self.__images = pickle.load(image_file)
-
-  def prune_images(self, synsets):
-    """ Remove any images from the dataset that are not specified in the input.
-    Args:
-      synsets: The synset data structure containing all the acceptable images.
-      If something is not in here, it will be removed.
-    Returns:
-      True if images were removed, False if none were. """
-    logger.info("Pruning dataset...")
-
-    # Put everything into a valid set.
-    valid = set()
-    for synset in synsets.keys():
-      for wnid, url in synsets[synset]:
-        valid.add((wnid, url))
-
-    # Remove anything that's not in it.
-    removed_image = False
-    to_remove = []
-    for wnid, url in self.__images:
-      if (wnid, url) not in valid:
-        to_remove.append((wnid, url))
-        removed_image = True
-
-    for pair in to_remove:
-      self.__images.remove(pair)
-
-    return removed_image
-
-
-class _TrainingDataset(_Dataset):
-  """ A standard training dataset. """
-
-
-  def __init__(self, images, disk_cache, batch_size, preload_batches=1):
-    """ See documentation for superclass method.
-    Extra Args:
-      preload_batches: How many additional batches to preload. This can greatly
-                       increase performace, but uses additional RAM. """
-    super(_TrainingDataset, self).__init__(images, disk_cache, batch_size)
-
-    self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
-                                          channels=3)
-    self._download_manager = downloader.DownloadManager(self._cache,
-                                                        self._mem_buffer)
-
-
-class _TestingDataset(_Dataset):
-  """ Dataset specifically for testing. One main difference is that it extracts
-  every patch for each image, and stores 10 versions of each batch, one for each
-  patch type. """
-
-  def __init__(self, images, disk_cache, batch_size, preload_batches=1):
-    """ See documentation for _Dataset __init__ function.
-    NOTE: batch_size here represents the base batch size. When you request a
-    batch, it will actually return 10 times this many images, since it will use
-    all the patches.
-    Extra Args:
-      preload_batches: How many additional batches to preload. This can greatly
-                       increase performace, but uses additional RAM. """
-    super(_TestingDataset, self).__init__(images, disk_cache, batch_size)
-
-    # We need 10x the buffer space to store the extra patches.
-    self._mem_buffer = cache.MemoryBuffer(224, batch_size, preload_batches,
-                                          channels=3, num_patches=10)
-    self._download_manager = downloader.DownloadManager(self._cache,
-                                                        self._mem_buffer,
-                                                        all_patches=True)
-
-  def _load_random_image(self):
-    """ See superclass documentation. This override is necessary to deal with
-    multiple patches. """
-    wnid, url = self._pick_random_image()
-    synset, number = wnid.split("_")
-
-    patches = self._get_cached_image(synset, number)
-    if patches is None:
-      # We have to download the image instead.
-      self._download_manager.download_new(synset, number, url)
-      return 0
-
-    # Cache hit.
-    self._mem_buffer.add_patches(patches, number, synset)
-    return 1
-
-  def _get_cached_image(self, synset, image_number):
-    """ See superclass documentation. This override is necessary to deal with
-    multiple patches. """
-    # First check in the cache for the image.
-    cached_image = self._cache.get(synset, image_number)
-    if cached_image is not None:
-      # We had a cached copy, so we're done.
-      logger.debug("Found image in cache: %s_%s" % (synset, image_number))
-
-      # Extract patches.
-      return data_augmentation.extract_patches(cached_image)
-
-    return None
-

@@ -32,12 +32,12 @@ import image_getter
 def main():
   logging.info("Starting...")
 
-  getter = image_getter.SynsetFileImageGetter("use_synsets.txt", "synsets",
-                                              "image_cache",
-                                              10, preload_batches=2)
+  getter = image_getter.ImageGetter("headpose_cache", 10, (225, 225, 1),
+                                    preload_batches=2,
+                                    load_datasets_from="dataset")
 
   for x in range(0, 3):
-    batch = getter.get_random_train_batch()
+    batch = getter.get_random_test_batch()
 
     print batch[1]
     print len(batch[1])

@@ -3,7 +3,7 @@
 
 # This forks processes, so we want to import it as soon as possible, when there
 # is as little memory as possible being used.
-from common.imagenet_server import cache, image_getter
+from common.data_manager import cache, image_getter, imagenet
 
 import cPickle as pickle
 import gzip
@@ -177,33 +177,48 @@ class Mnist(Loader):
     self._shared_dataset(valid_set, self._shared_valid_set)
 
 
-class Ilsvrc12(Loader):
-  """ Loads ILSVRC12 data that's saved to the disk. """
-  def __init__(self, batch_size, load_batches):
+class DataManagerLoader(Loader):
+  """ Loads datasets concurrently with the help of the data_manager package. """
+
+  def __init__(self, batch_size, load_batches, image_shape, dataset_location,
+               patch_shape=None):
     """
     Args:
       batch_size: How many images are in each batch.
-      load_batches: How many batches to have in VRAM at any given time. """
-    super(Ilsvrc12, self).__init__()
+      load_batches: How many batches to have in VRAM at any given time.
+      image_shape: The shape of the images that will be loaded.
+      dataset_location: The common part of the path to the files that we will be
+      loading our training and testing datasets from.
+      patch_shape: The shape of the patches that will be extracted from the
+      images. If None, no patches will be extracted, and the raw images will be
+      used directly. """
+    super(DataManagerLoader, self).__init__()
+
+    self._image_shape = image_shape
+    self._dataset_location = dataset_location
+    self._patch_shape = patch_shape
 
     # Register signal handlers.
     signal.signal(signal.SIGTERM, self.__on_signal)
     signal.signal(signal.SIGINT, self.__on_signal)
 
-    self.__buffer_size = batch_size * load_batches
+    self._buffer_size = batch_size * load_batches
     # Handle to the actual buffers containing images.
     self.__training_buffer = None
     self.__testing_buffer = None
     self.__training_labels = None
     self.__testing_labels = None
+
+    self._train_set_size = self._buffer_size
+    if not self._patch_shape:
+      # No patches.
+      self._test_set_size = self._buffer_size
+    else:
+      # We have to account for all the patches.
+      self._test_set_size = self._buffer_size * 10
+
     # This is how we'll actually get images.
-    self.__image_getter = \
-        image_getter.SynsetFileImageGetter(ILSVRC16_SYNSETS, SYNSET_LOCATION,
-                                           CACHE_LOCATION, self.__buffer_size,
-                                           preload_batches=2,
-                                           load_datasets_from=DATASET_LOCATION)
-    self._train_set_size = self.__buffer_size
-    self._test_set_size = self.__buffer_size * 10
+    self._init_image_getter()
     # Lock that we use to make sure we are only getting one batch at a time.
     self.__image_getter_lock = threading.Lock()
 
@@ -221,9 +236,9 @@ class Ilsvrc12(Loader):
     self.__train_buffer_full.acquire()
     self.__test_buffer_full.acquire()
 
-    # Labels have to be integers, so that means we have to map synsets to
+    # Labels have to be integers, so that means we have to map labels to
     # integers.
-    self.__synsets = {}
+    self.__labels = {}
     self.__current_label = 0
 
     # This is an event that signals to the internal threads that it's time to
@@ -280,8 +295,17 @@ class Ilsvrc12(Loader):
     self.__train_thread.join()
     self.__test_thread.join()
 
+  def _init_image_getter(self):
+    """ Initializes the specific ImageGetter that we will use to get images.
+    This can be overriden by subclasses to add specific functionality. """
+    self._image_getter = \
+        image_getter.ImageGetter(CACHE_LOCATION, self._buffer_size,
+                                 self._image_shape, preload_batches=2,
+                                 load_datasets_from=self._dataset_location,
+                                 patch_shape=self._patch_shape)
+
   def __convert_labels_to_ints(self, labels):
-    """ Converts a set of labels from the default synset names to integers, so
+    """ Converts a set of labels from the default label names to integers, so
     that they can actually be used in the network.
     Args:
       labels: The labels to convert.
@@ -289,12 +313,12 @@ class Ilsvrc12(Loader):
       A list of the converted labels. """
     converted = []
     for label in labels:
-      if label in self.__synsets:
-        converted.append(self.__synsets[label])
+      if label in self.__labels:
+        converted.append(self.__labels[label])
       else:
-        # This is the first time we've seen this synset.
+        # This is the first time we've seen this label.
         converted.append(self.__current_label)
-        self.__synsets[label] = self.__current_label
+        self.__labels[label] = self.__current_label
         self.__current_label += 1
 
     return converted
@@ -302,7 +326,7 @@ class Ilsvrc12(Loader):
   def __load_next_training_batch(self):
     """ Loads the next batch of training data from the Imagenet backend. """
     self.__training_buffer, labels = \
-        self.__image_getter.get_random_train_batch()
+        self._image_getter.get_random_train_batch()
     logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
     logger.debug("Training mean: %f" % mean)
@@ -323,7 +347,7 @@ class Ilsvrc12(Loader):
   def __load_next_testing_batch(self):
     """ Loads the next batch of testing data from the Imagenet backend. """
     self.__testing_buffer, labels = \
-        self.__image_getter.get_random_test_batch()
+        self._image_getter.get_random_test_batch()
     logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
     logger.debug("Testing mean: %f" % mean)
@@ -425,30 +449,49 @@ class Ilsvrc12(Loader):
     # Load a new set for it.
     self.__swap_in_training_data()
 
-    return super(Ilsvrc12, self).get_train_set()
+    return super(DataManagerLoader, self).get_train_set()
 
   def get_test_set(self):
     # Load a new set for it.
     self.__swap_in_testing_data()
 
-    return super(Ilsvrc12, self).get_test_set()
+    return super(DataManagerLoader, self).get_test_set()
 
   def get_non_shared_test_set(self):
     """ Gets a non-shared version of the test set, useful for AlexNet. """
     return self.__testing_labels
 
   def save(self, filename):
-    """ Allows the saving of synset associations for later use.
+    """ Allows the saving of label associations for later use.
     Args:
       filename: The name of the file to write the saved data to. """
     file_object = open(filename, "wb")
-    pickle.dump(self.__synsets, file_object)
+    pickle.dump(self.__labels, file_object)
     file_object.close()
 
   def load(self, filename):
-    """ Loads synset associations that have been saved to a file.
+    """ Loads label associations that have been saved to a file.
     Args:
       filename: The name of the file to load from. """
     file_object = file(filename, "rb")
-    self.__synsets = pickle.load(file_object)
+    self.__labels = pickle.load(file_object)
     file_object.close()
+
+
+class ImagenetLoader(DataManagerLoader):
+  """ Loads data from imagenet. """
+
+  def __init__(self, batch_size, load_batches):
+    """ See superclass documentation for this method. """
+    super(ImagenetLoader, self).__init__(batch_size, load_batches,
+                                         DATASET_LOCATION)
+
+  def _init_image_getter(self):
+    """ Initializes the specific ImageGetter that we will use to get images.
+    """
+    self._image_getter = \
+        imagenet.SynsetFileImagenetGetter( \
+            ILSVRC16_SYNSETS, SYNSET_LOCATION, CACHE_LOCATION,
+            self._buffer_size, (256, 256, 3), preload_batches=2,
+            load_datasets_from=self._dataset_location, patch_shape=(224, 224))
+

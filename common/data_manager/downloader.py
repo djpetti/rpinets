@@ -36,17 +36,18 @@ class DownloaderProcess(multiprocessing.Process):
     logger.debug("Starting downloader process.")
 
     while True:
-      req_id, synset, number, url = self.__command_queue.get()
+      req_id, synset, number, url, patch_shape = self.__command_queue.get()
+      self.__download_image(req_id, synset, number, url, patch_shape)
 
-      self.__download_image(req_id, synset, number, url)
-
-  def __download_image(self, req_id, synset, number, url):
+  def __download_image(self, req_id, synset, number, url, patch_shape):
     """ Downloads a single image.
     Args:
       req_id: The ID of the requesting download manager.
       synset: The image synset.
       number: The image number.
-      url: The image url. """
+      url: The image url.
+      patch_shape: The shape of the patches to extract. If None, it will not
+                   extract patches. """
     logger.debug("Downloading image for %d: %s_%s" % (req_id, synset, number))
 
     # Download the image.
@@ -57,7 +58,9 @@ class DownloaderProcess(multiprocessing.Process):
       return
 
     # Extract the patches to send back.
-    patches = data_augmentation.extract_patches(image)
+    patches = None
+    if patch_shape:
+      patches = data_augmentation.extract_patches(image, patch_shape)
 
     # Save the image to the queue.
     logger.debug("Sending image for %d: %s_%s" % (req_id, synset, number))
@@ -72,11 +75,13 @@ class DownloadManager(object):
   _current_id = 0
 
   def __init__(self, disk_cache, mem_buffer,
-               all_patches=False):
+               patch_shape=None, all_patches=False):
     """
     Args:
       disk_cache: DiskCache to save downloaded images to.
       mem_buffer: MemoryBuffer to save downloaded images to.
+      patch_shape: The shape that extracted patches should be. It defaults to
+                   None, in which case no patches will be extracted at all.
       all_patches: Whether to save all the patches, or just pick one at random.
       """
     self.__id = DownloadManager._current_id
@@ -84,6 +89,7 @@ class DownloadManager(object):
 
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
+    self.__patch_shape = patch_shape
     self.__all_patches = all_patches
 
     # Set of failed downloads.
@@ -109,7 +115,7 @@ class DownloadManager(object):
 
     # Add a new download.
     self.__pending.add((synset, number))
-    _command_queue.put((self.__id, synset, number, url))
+    _command_queue.put((self.__id, synset, number, url, self.__patch_shape))
     return True
 
   def update(self):
@@ -162,12 +168,16 @@ class DownloadManager(object):
         self.__failures.add((synset, name, url))
         continue
 
-      if not self.__all_patches:
-        # Choose a random patch.
-        patch = patches[random.randint(0, len(patches) - 1)]
-        self.__mem_buffer.add(patch, name, synset)
+      if not self.__patch_shape:
+        # No patches. Use the entire image.
+        self.__mem_buffer.add(image, name, synset)
       else:
-        self.__mem_buffer.add_patches(patches, name, synset)
+        if not self.__all_patches:
+          # Choose a random patch.
+          patch = patches[random.randint(0, len(patches) - 1)]
+          self.__mem_buffer.add(patch, name, synset)
+        else:
+          self.__mem_buffer.add_patches(patches, name, synset)
 
       # Add it to the disk cache.
       self.__disk_cache.add(image, name, synset)
