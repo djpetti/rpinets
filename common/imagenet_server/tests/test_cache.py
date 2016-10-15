@@ -244,3 +244,29 @@ class DiskCacheTest(unittest.TestCase):
       self.assertTrue(np.array_equal(image, got_image))
     # Nothing extra should be there.
     self.assertEqual(len(self.__images), len(loaded))
+
+  def test_sequential_use_only(self):
+    """ Tests that get_sequential works when we give it a set of the images it
+    can use. """
+    # Store all the images.
+    use_only = set()
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      use_only.add("synset1_%s" % (name))
+      self.__cache.add(image, name, "synset1")
+
+    # Remove the first image from use_only.
+    use_only.remove("synset1_image0")
+    # Try to read everything back from the cache.
+    loaded = self.__cache.get_sequential("synset1", "image0",
+                                         len(self.__images),
+                                         use_only=use_only)
+
+    # Check that it found everything except the first one.
+    for i, image in enumerate(self.__images[1:]):
+      name = "image%d" % (i + 1)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+    self.assertNotIn("synset1_image0", loaded)

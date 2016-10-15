@@ -361,13 +361,16 @@ class DiskCache(Cache):
 
     return loaded, not_found
 
-  def get_sequential(self, start_label, start_name, number_of_images):
+  def get_sequential(self, start_label, start_name, number_of_images,
+                     use_only=None):
     """ Gets a number of images that are stored sequentially in the cache. This
     is the fastest way to load a large number of images from the cache.
     Args:
       start_label: The label of the image to start form.
       start_name: The name of the image to start from.
       number_of_images: Total number of images to load, including the start one.
+      use_only: Specifies a set of images. If a loaded image is not in that set,
+                it will not be included. Images are specified by image ID.
     Returns:
       A dictionary mapping unique IDs of loaded images to the actual image data.
       It may not contain all the images requested, if there is not sufficient
@@ -413,7 +416,11 @@ class DiskCache(Cache):
       # current image.
       to_load.append((img_id, end_offset - old_end_offset))
 
-      num_loaded += 1
+      # If we're not going to use it, we still want to add it to the list, since
+      # we have to read images in a chain. However, it doesn't count towards the
+      # total number of images loaded.
+      if (use_only == None or img_id in use_only):
+        num_loaded += 1
 
     # Read that part of the file.
     logger.debug("Reading file from %d to %d." % (start_offset, end_offset))
@@ -423,11 +430,15 @@ class DiskCache(Cache):
     # Load the actual image data.
     raw_data = np.asarray(bytearray(raw_data), dtype=np.uint8)
     for img_id, size in to_load:
-      # OpenCV knows when the image ends, so we don't have to worry about bounding
-      # our slice on one side.
-      image = cv2.imdecode(raw_data, cv2.CV_LOAD_IMAGE_UNCHANGED)
+      if (use_only == None or img_id in use_only):
+        # OpenCV knows when the image ends, so we don't have to worry about bounding
+        # our slice on one side.
+        image = cv2.imdecode(raw_data, cv2.CV_LOAD_IMAGE_UNCHANGED)
+        images[img_id] = image
+      else:
+        logger.debug("Skipping image: %s" % (img_id))
+
       raw_data = raw_data[size:]
-      images[img_id] = image
 
     return images
 

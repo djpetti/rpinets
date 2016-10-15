@@ -10,7 +10,7 @@ def _configure_logging():
   file_handler = logging.FileHandler("test_image_getter.log")
   file_handler.setLevel(logging.DEBUG)
   stream_handler = logging.StreamHandler()
-  stream_handler.setLevel(logging.INFO)
+  stream_handler.setLevel(logging.DEBUG)
   formatter = logging.Formatter("%(name)s@%(asctime)s: " +
       "[%(levelname)s] %(message)s")
   file_handler.setFormatter(formatter)
@@ -34,9 +34,9 @@ def main():
 
   getter = image_getter.SynsetFileImageGetter("use_synsets.txt", "synsets",
                                               "image_cache",
-                                              10, preload_batches=2)
+                                              100, preload_batches=2)
 
-  for x in range(0, 3):
+  for x in range(0, 10):
     batch = getter.get_random_train_batch()
 
     print batch[1]

@@ -110,6 +110,7 @@ class DownloadManager(object):
     # Add a new download.
     self.__pending.add((synset, number))
     _command_queue.put((self.__id, synset, number, url))
+
     return True
 
   def update(self):
@@ -176,22 +177,19 @@ class DownloadManager(object):
 
     return downloaded
 
-  def wait_for_downloads(self):
-    """ Waits until all the downloads are finished, basically by calling update
-    periodically.
-    Returns:
-      A list of all the failed downloads. """
-    while self.update():
-      time.sleep(1)
-
-    return self.get_failures()
-
   def get_failures(self):
     """ Returns: The list of failures up until now. Every call to this function
     will clear the list after returning it. """
     failures = list(self.__failures)
     self.__failures = set([])
     return failures
+
+  def get_num_downloading(self):
+    """
+    Returns:
+      The number of images that are currently in the process of being
+      downloaded. """
+    return len(self.__pending)
 
 
 # These processes do not need any internal state copied, so we create them at

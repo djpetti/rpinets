@@ -15,7 +15,7 @@ class RandomSet(object):
     """ Initializes the set from some initial data.
     Args:
       initial_data: A list of the initial data. """
-    self.__data = initial_data
+    self.__data = list(initial_data)
 
     self.__data_to_indices = {}
     for i, item in enumerate(initial_data):
