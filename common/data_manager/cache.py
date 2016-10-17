@@ -254,21 +254,14 @@ class DiskCache(Cache):
     # Make sure we stay within the size constraint.
     self.__maintain_size()
 
-  def get(self, label, name):
-    """ Gets an image from the cache.
+  def __do_get(self, label, name):
+    """ Gets an image from the cache. It does not check if an image is actually
+    in the cache.
     Args:
-      label: The label it belongs to.
-      name: The image name. It should be unique within the label.
+      label: The label of the image.
+      name: The name of the image.
     Returns: The image data, or None if the image (or label) doesn't exist in
              the cache. """
-    # Flush any pending writes to the file before we try to read.
-    self.__data_file.flush()
-
-    if label not in self.__labels:
-      return None
-    if name not in self.__labels[label]:
-      return None
-
     # Get the image offset and size.
     offset, size = self.__labels[label][name]
 
@@ -279,6 +272,168 @@ class DiskCache(Cache):
     image = cv2.imdecode(file_bytes, cv2.CV_LOAD_IMAGE_UNCHANGED)
 
     return image
+
+  def is_in_cache(self, label, name):
+    """ Quickly tests if an image is in the cache.
+    Args:
+      label: The label of the image to check.
+      name: The name of the image to check.
+    Returns:
+      True if the image is in the cache, False otherwise. """
+    if label not in self.__labels:
+      return False
+    if name not in self.__labels[label]:
+      return False
+
+    return True
+
+  def get(self, synset, name):
+    """ Gets an image from the cache.
+    Args:
+      label: The label it belongs to.
+      name: The image name. It should be unique within the label.
+    Returns: The image data, or None if the image (or label) doesn't exist in
+             the cache. """
+    # Flush any pending writes to the file before we try to read.
+    self.__data_file.flush()
+
+    if not self.is_in_cache(synset, name):
+      return None
+    return self.__do_get(synset, name)
+
+  def bulk_get(self, image_pairs):
+    """ Gets a large number of images from the cache at once.
+    For a large batch of images, this can be a lot faster than running get
+    individually.
+    Args:
+      image_pairs: Set of (synset, name) pairs for each image to load.
+    Returns:
+      A dictionary mapping the unique IDs of loaded images to the actual image
+      data, and a list of the unique IDs of images that were not found. """
+    def compare_offsets(image1_pair, image2_pair):
+      """ Compares the offsets of two images in the file.
+      Args:
+        image1_pair: The (label, name) pair of the first image.
+        image2_pair: The (label, name) pair of the second image.
+      Returns:
+        True if image1 has a smaller offset than image2, False otherwise. """
+      label1, name1 = image1_pair
+      label2, name2 = image2_pair
+
+      offset1, _ = self.__labels[label1][name1]
+      offset2, _ = self.__labels[label2][name2]
+
+      return offset1 < offset2
+
+    # Flush any pending writes to the file before we try to read.
+    self.__data_file.flush()
+
+    # Process images that don't exist.
+    not_found = []
+    to_remove = []
+    for label, name in image_pairs:
+      img_id = "%s_%s" % (label, name)
+      if not self.is_in_cache(label, name):
+        not_found.append(img_id)
+        to_remove.append((label, name))
+
+    for pair in to_remove:
+      image_pairs.remove(pair)
+
+    # Sort the images in the order of their offsets in the file. This is so the
+    # needle on the disk doesn't have to jump around everywhere.
+    sorted_pairs = sorted(image_pairs, cmp=compare_offsets)
+
+    # Now go and load everything in that order.
+    loaded = {}
+    for label, name in sorted_pairs:
+      image = self.__do_get(label, name)
+      assert image is not None
+      img_id = "%s_%s" % (label, name)
+      loaded[img_id] = image
+
+    return loaded, not_found
+
+  def get_sequential(self, start_label, start_name, number_of_images,
+                     use_only=None):
+    """ Gets a number of images that are stored sequentially in the cache. This
+    is the fastest way to load a large number of images from the cache.
+    Args:
+      start_label: The label of the image to start form.
+      start_name: The name of the image to start from.
+      number_of_images: Total number of images to load, including the start one.
+      use_only: Specifies a set of images. If a loaded image is not in that set,
+                it will not be included. Images are specified by image ID.
+    Returns:
+      A dictionary mapping unique IDs of loaded images to the actual image data.
+      It may not contain all the images requested, if there is not sufficient
+      data in the cache. It will also return None if the first image is not in
+      the cache. """
+    if not self.is_in_cache(start_label, start_name):
+      return None
+
+    # Flush any pending writes to the file before we try to read.
+    self.__data_file.flush()
+
+    images = {}
+
+    # Get the size of the data file.
+    cache_data_location = os.path.join(self.__location, "cache_data.dat")
+    total_size = os.path.getsize(cache_data_location)
+
+    # Compute the offsets for the chunk of the file we need to read.
+    start_offset, size = self.__labels[start_label][start_name]
+    end_offset = start_offset
+    num_loaded = 0
+    to_load = []
+
+    while (num_loaded < number_of_images and end_offset < total_size):
+      # Find the next image.
+      if end_offset not in self.__offsets:
+        raise RuntimeError("Unexpected free space in cache. Please repair the \
+                            cache.")
+      img_id = self.__offsets[end_offset]
+      label, name = img_id.split("_")
+      end_offset, size = self.__labels[label][name]
+
+      old_end_offset = end_offset
+      end_offset = end_offset + size
+      if end_offset == self.__free_start:
+        # We're in the free space. Just skip over this.
+        end_offset = self.__free_end
+      elif (end_offset > self.__free_start and end_offset < self.__free_end):
+        raise RuntimeError("Data overlaps free space in cache. Please repair \
+                            the cache.")
+
+      # We want to account for any free space we skipped here when we add the
+      # current image.
+      to_load.append((img_id, end_offset - old_end_offset))
+
+      # If we're not going to use it, we still want to add it to the list, since
+      # we have to read images in a chain. However, it doesn't count towards the
+      # total number of images loaded.
+      if (use_only == None or img_id in use_only):
+        num_loaded += 1
+
+    # Read that part of the file.
+    logger.debug("Reading file from %d to %d." % (start_offset, end_offset))
+    self.__data_file.seek(start_offset)
+    raw_data = self.__data_file.read(end_offset - start_offset)
+
+    # Load the actual image data.
+    raw_data = np.asarray(bytearray(raw_data), dtype=np.uint8)
+    for img_id, size in to_load:
+      if (use_only == None or img_id in use_only):
+        # OpenCV knows when the image ends, so we don't have to worry about bounding
+        # our slice on one side.
+        image = cv2.imdecode(raw_data, cv2.CV_LOAD_IMAGE_UNCHANGED)
+        images[img_id] = image
+      else:
+        logger.debug("Skipping image: %s" % (img_id))
+
+      raw_data = raw_data[size:]
+
+    return images
 
   def get_cache_size(self):
     """

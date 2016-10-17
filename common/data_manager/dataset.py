@@ -35,14 +35,23 @@ class _DatasetBase(object):
                    be used instead."""
     self._image_shape = image_shape
 
-    self.__images = RandomSet(images)
+    # Split image data into a set with just the IDs, and a map of the IDs to the
+    # URLs. For the IDs, we will use the special RandomSet type so we can
+    # quickly choose random images.
+    image_data = []
+    self.__image_urls = {}
+    for img_id, url in images:
+      image_data.append(img_id)
+      self.__image_urls[img_id] = url
+    self.__images = RandomSet(image_data)
+
     self._cache = disk_cache
 
     self._batch_size = batch_size
     self._patch_shape = patch_shape
 
-    # The number of images that we've currently requested be downloaded.
-    self.__num_downloading = 0
+    # The fraction of the last batch that it was able to find in the cache.
+    self.__cache_hit_rate = 0.0
 
     logger.info("Have %d total images in database." % (len(self.__images)))
 
@@ -63,7 +72,7 @@ class _DatasetBase(object):
   def get_random_batch(self):
     """ Loads a random batch of images from the whole dataset.
     Returns:
-      The array of loaded images, and a list of the labels each image belongs
+      The array of loaded images, and a list of the synsets each image belongs
       to, as well as a list of all images that failed to download. """
     logger.info("Getting batch.")
 
@@ -71,101 +80,130 @@ class _DatasetBase(object):
     self.__already_picked = set([])
 
     # Try to download initial images.
-    need_images = self._mem_buffer.get_max_images() - self.__num_downloading
+    need_images = self._mem_buffer.space_remaining() - \
+                  self._download_manager.get_num_downloading()
     logger.debug("Need to start downloading %d additional images." %
                  (need_images))
-    loaded_from_cache = 0
+
+    total_cache_hits = 0
+    cache_attempted_loads = 0
     for _ in range(0, need_images):
-      loaded_from_cache += self._load_random_image()
-    self.__num_downloading += need_images
+      total_cache_hits += self._load_random_images(need_images)
+      cache_attempted_loads += 1
+      need_images = self._mem_buffer.space_remaining()
+
+      if not need_images:
+        # We loaded everything from cache.
+        logger.debug("Loaded everything from cache.")
+        break
 
     # Wait for 1 batch worth of the downloads to complete,
     # replacing any ones that fail.
     to_remove = []
-    successfully_downloaded = loaded_from_cache
-    while successfully_downloaded < self._batch_size:
+    while self._mem_buffer.space_used() < self._batch_size:
+      # Update the download manager.
+      downloaded = self._download_manager.update()
+
+      # Process failures.
       failures = self._download_manager.get_failures()
       if len(failures):
         logger.debug("Replacing %d failed downloads." % (len(failures)))
 
       # Remove failed images.
-      loaded_from_cache = 0
-      for label, name, url in failures:
+      for synset, name, url in failures:
         # Remove failed image.
-        img_id = utils.make_img_id(label, name)
+        wnid = "%s_%s" % (synset, name)
 
-        logger.info("Removing bad image %s, %s" % (img_id, url))
+        logger.info("Removing bad image %s, %s" % (wnid, url))
 
         # Because we keep running downloader processes in the background through
         # multiple calls to get_random_batch, it's possible that we could try to
         # remove something twice.
-        if (img_id, url) in self.__images:
-          self.__images.remove((img_id, url))
-          to_remove.append((img_id, url))
+        if wnid in self.__images:
+          self.__images.remove(wnid)
+          self.__image_urls.pop(wnid)
+          to_remove.append((wnid, url))
         else:
-          logger.debug("Item already removed: %s" % (img_id))
+          logger.debug("Item already removed: %s" % (wnid))
 
-        # Load a new image to replace it.
-        loaded_from_cache += self._load_random_image()
-
-      downloaded = self._download_manager.update()
-      successfully_downloaded += downloaded + loaded_from_cache
+        # Load new images to replace it.
+        total_cache_hits += self._load_random_images( \
+            self._mem_buffer.space_remaining())
+        cache_attempted_loads += 1
 
       time.sleep(0.2)
 
-    logger.debug("Loaded %d images from cache." % (loaded_from_cache))
-    logger.debug("Finished downloading.")
-    self.__num_downloading -= self._batch_size
+    # Update total hit rate.
+    if need_images:
+      self.__cache_hit_rate = float(total_cache_hits) / cache_attempted_loads
+    logger.debug("Cache hits: %d, Hit rate: %f" % (total_cache_hits,
+                                                   self.__cache_hit_rate))
+
     return self._mem_buffer.get_batch(), to_remove
 
-  def _load_random_image(self):
+  def _load_random_images(self, max_images):
     """ Loads a random image from either the cache or the internet. If loading
-    from the internet, it adds it to the download manager, otherwise, it adds
-    them to the memory buffer.
+    from the cache, it will also try to speed up the process by loading "bonus"
+    images that are physically near the target image in the cache, if deemed
+    reasonable.
+    Args:
+      max_images: The maximum number of images to load.
     Returns:
       How many images it loaded from the cache successfully. """
-    img_id, url = self._pick_random_image()
-    label, number = utils.split_img_id(img_id)
+    wnid, url = self._pick_random_image()
+    synset, number = wnid.split("_")
 
-    image = self._get_cached_image(label, number)
-    if image is None:
-      if not url:
-        # Now we have a problem, because we can't get the image anywhere.
-        logger.error("Expected image %s to be in cache, but it is not there." \
-                     % (img_id))
-        raise ValueError("Expected %s to be in cache." % (img_id))
+    if self._cache.is_in_cache(synset, number):
+      # It's in the cache, so load it and any additional sequential images.
+      return self._get_cached_images(synset, number, max_images)
 
-      # We have to download the image instead.
-      if not self._download_manager.download_new(label, number, url):
-        # We're already downloading that image.
-        logger.info("Already downloading %s. Picking new one..." % (img_id))
-        return self._load_random_image()
-      return 0
+    # We have to download the image instead.
+    if not self._download_manager.download_new(synset, number, url):
+      # We're already downloading that image.
+      logger.info("Already downloading %s. Picking new one..." % (wnid))
+      return self._load_random_images(max_images)
 
-    # Cache hit.
-    self._mem_buffer.add(image, number, label)
-    return 1
+    return 0
 
-  def _get_cached_image(self, label, image_number):
-    """ Checks if an image is in the cache, and returns it.
+  def _get_cached_images(self, start_label, start_name, max_images):
+    """ Bulk-loads a bunch of image data from the cache, pre-processes them, and
+    puts the in the memory buffer.
     Args:
-      label: The label of the image.
-      image_number: The image number in the label.
+      start_label: The label of the image to start loading from.
+      start_name: The name of the image to start loading from.
+      max_images: The maximum number of images we can load.
     Returns:
-      The actual image data, or None if the image is not in the cache. """
-    # First check in the cache for the image.
-    cached_image = self._cache.get(label, image_number)
-    if cached_image is not None:
-      # We had a cached copy, so we're done.
-      if self._patch_shape:
-        # Select a patch.
-        patches = data_augmentation.extract_patches(cached_image,
-                                                    self._patch_shape)
-        cached_image = patches[random.randint(0, len(patches) - 1)]
+      1 if it loaded something from the cache, 0 if it didn't. """
+    # Use a simple heuristic to figure out how many images to try loading
+    # sequentially.
+    print "Hit rate: %f, images: %d" % (self.__cache_hit_rate,
+                                        max_images)
+    load_images = self.__cache_hit_rate * max_images
+    load_images = int(load_images)
+    load_images = max(load_images, 1)
+    logger.debug("Attempting load of %d sequential images from cache..." % \
+                 (load_images))
 
-      return cached_image
+    loaded = self._cache.get_sequential(start_label, start_name, load_images,
+                                        use_only=self.__images)
 
-    return None
+    for img_id, image in loaded.iteritems():
+      self._buffer_image(image, img_id)
+
+    return len(loaded) != 0
+
+  def _buffer_image(self, image, img_id):
+    """ Pre-process a loaded image and store it in the memory buffer.
+    Args:
+      image: The actual image data to store.
+      img_id: The ID of the image. """
+    # Select a patch.
+    patches = data_augmentation.extract_patches(image, self._patch_shape)
+    image = patches[random.randint(0, len(patches) - 1)]
+
+    # Add it to the buffer.
+    label, name = utils.split_(img_id)
+    self._mem_buffer.add(image, name, label)
 
   def get_images(self):
     """ Gets all the images in the dataset. """
@@ -177,19 +215,16 @@ class _DatasetBase(object):
       filename: The name of the file to write the list of images to. """
     image_file = open(filename, "wb")
     logger.debug("Saving dataset to file: %s" % (filename))
-    pickle.dump(self.__images, image_file)
+    pickle.dump((self.__images, self.__image_urls), image_file)
     image_file.close()
 
   def load_images(self, filename):
     """ Loads the set of images that this dataset contains from a file.
     Args:
       filename: The name of the file to read the list of images from. """
-    if not os.path.exists(filename):
-      raise ValueError("Dataset file does not exist: %s" % (filename))
-
     image_file = file(filename, "rb")
     logger.info("Loading dataset from file: %s" % (filename))
-    self.__images = pickle.load(image_file)
+    self.__images, self.__image_urls = pickle.load(image_file)
 
   def prune_images(self, labels):
     """ Remove any images from the dataset that are not specified in the input.
@@ -203,15 +238,19 @@ class _DatasetBase(object):
     # Put everything into a valid set.
     valid = set()
     for label in labels.keys():
-      for img_id, url in labels[label]:
-        valid.add((img_id, url))
+      for img_id, _ in labels[label]:
+        valid.add(wnid)
 
     # Remove anything that's not in it.
     removed_image = False
-    for img_id, url in self.__images:
-      if (img_id, url) not in valid:
-        self.__images.remove((img_id, url))
+    to_remove = []
+    for img_id in self.__images:
+      if img_id not in valid:
+        to_remove.append(img_id)
         removed_image = True
+
+    for img_id in to_remove:
+      self.__images.remove(img_id)
 
     return removed_image
 
@@ -277,29 +316,18 @@ class PatchedDataset(_DatasetBase):
                                    all_patches=True,
                                    patch_shape=self._patch_shape)
 
-  def _load_random_image(self):
-    """ See superclass documentation. This override is necessary to deal with
-    multiple patches. """
-    img_id, url = self._pick_random_image()
-    label, number = utils.split_img_id(img_id)
+  def _get_cached_images(self, load_from_cache):
+    """ Bulk-loads a bunch of image data from the cache, pre-processes them, and
+    puts the in the memory buffer.
+    Args:
+      load_from_cache: The set of images to load. """
+    loaded, not_found = self._cache.bulk_get(load_from_cache)
+    assert not not_found
 
-    patches = self._get_cached_image(label, number)
-    if patches is None:
-      # We have to download the image instead.
-      self._download_manager.download_new(label, number, url)
-      return 0
+    for img_id, image in loaded.iteritems():
+      # Add all the patches.
+      patches = data_augmentation.extract_patches(image)
 
-    # Cache hit.
-    self._mem_buffer.add_patches(patches, number, label)
-    return 1
-
-  def _get_cached_image(self, label, image_number):
-    """ See superclass documentation. This override is necessary to deal with
-    multiple patches. """
-    # First check in the cache for the image.
-    cached_image = self._cache.get(label, image_number)
-    if cached_image is not None:
-      # Extract patches.
-      return data_augmentation.extract_patches(cached_image)
-
-    return None
+      # Add it to the buffer.
+      label, name = img_id.split("_")
+      self._mem_buffer.add_patches(patches, name, label)

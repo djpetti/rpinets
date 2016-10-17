@@ -149,3 +149,124 @@ class DiskCacheTest(unittest.TestCase):
       self.assertTrue(np.array_equal(image, got_image))
     got_image = self.__cache.get("label1", "last_image")
     self.assertTrue(np.array_equal(self.__images[-1], got_image))
+
+  def test_bulk_get(self):
+    """ Tests that we can use the bulk_get method to load a bunch of data from
+    the cache at once. """
+    # Store all the images.
+    image_pairs = set()
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      self.__cache.add(image, name, "synset1")
+      image_pairs.add(("synset1", name))
+
+    # Add another image to image_pairs that doesn't exist.
+    bad_name = "image%d" % (len(self.__images))
+    bad_id = "%s_%s" % ("synset1", bad_name)
+    image_pairs.add(("synset1", bad_name))
+
+    # Load everything.
+    loaded, not_found = self.__cache.bulk_get(image_pairs)
+
+    # Check that it found everything it should.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+
+    # Check that it didn't find the last one.
+    self.assertEqual(1, len(not_found))
+    self.assertEqual(bad_id, not_found[0])
+
+  def test_get_sequential(self):
+    """ Tests that we can use the get_sequential method to load a bunch of
+    contiguous data from the cache. """
+    # Store all the images.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      self.__cache.add(image, name, "synset1")
+
+    # Try to read everything back from the cache.
+    loaded = self.__cache.get_sequential("synset1", "image0",
+                                         len(self.__images))
+
+    # Check that it found everything it should.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+
+  def test_sequential_free_space(self):
+    """ Tests that get_sequential still works when the cache has free space in
+    it. """
+    # Store all the images.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      self.__cache.add(image, name, "synset1")
+
+    # Evict an image from the cache.
+    self.__cache.evict_next_image()
+
+    # Try to read everything remaining back from the cache.
+    loaded = self.__cache.get_sequential("synset1", "image1",
+                                         len(self.__images) - 1)
+
+    # Check that it found everything it should.
+    for i, image in enumerate(self.__images[1:]):
+      name = "image%d" % (i + 1)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+
+  def test_sequential_premature_end(self):
+    """ Tests that get_sequential works when we prematurely run out of images to
+    read. """
+    # Store all the images.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      self.__cache.add(image, name, "synset1")
+
+    # Try to read everything back from the cache, and more.
+    loaded = self.__cache.get_sequential("synset1", "image0",
+                                         len(self.__images) + 1)
+
+    # Check that it found everything it should.
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+    # Nothing extra should be there.
+    self.assertEqual(len(self.__images), len(loaded))
+
+  def test_sequential_use_only(self):
+    """ Tests that get_sequential works when we give it a set of the images it
+    can use. """
+    # Store all the images.
+    use_only = set()
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      use_only.add("synset1_%s" % (name))
+      self.__cache.add(image, name, "synset1")
+
+    # Remove the first image from use_only.
+    use_only.remove("synset1_image0")
+    # Try to read everything back from the cache.
+    loaded = self.__cache.get_sequential("synset1", "image0",
+                                         len(self.__images),
+                                         use_only=use_only)
+
+    # Check that it found everything except the first one.
+    for i, image in enumerate(self.__images[1:]):
+      name = "image%d" % (i + 1)
+      img_id = "%s_%s" % ("synset1", name)
+      self.assertIn(img_id, loaded)
+      got_image = loaded[img_id]
+      self.assertTrue(np.array_equal(image, got_image))
+    self.assertNotIn("synset1_image0", loaded)
