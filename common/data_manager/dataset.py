@@ -60,7 +60,8 @@ class _DatasetBase(object):
     Returns:
       img_id and url, and key of the image in the images map. """
     # Pick a random image.
-    img_id, url = self.__images.get_random()
+    img_id = self.__images.get_random()
+    url = self.__image_urls[img_id]
 
     if img_id in self.__already_picked:
       # This is a duplicate, pick another.
@@ -112,19 +113,19 @@ class _DatasetBase(object):
       # Remove failed images.
       for synset, name, url in failures:
         # Remove failed image.
-        wnid = "%s_%s" % (synset, name)
+        img_id = utils.make_img_id(synset, name)
 
-        logger.info("Removing bad image %s, %s" % (wnid, url))
+        logger.info("Removing bad image %s, %s" % (img_id, url))
 
         # Because we keep running downloader processes in the background through
         # multiple calls to get_random_batch, it's possible that we could try to
         # remove something twice.
-        if wnid in self.__images:
-          self.__images.remove(wnid)
-          self.__image_urls.pop(wnid)
-          to_remove.append((wnid, url))
+        if img_id in self.__images:
+          self.__images.remove(img_id)
+          self.__image_urls.pop(img_id)
+          to_remove.append((img_id, url))
         else:
-          logger.debug("Item already removed: %s" % (wnid))
+          logger.debug("Item already removed: %s" % (img_id))
 
         # Load new images to replace it.
         total_cache_hits += self._load_random_images( \
@@ -134,7 +135,7 @@ class _DatasetBase(object):
       time.sleep(0.2)
 
     # Update total hit rate.
-    if need_images:
+    if cache_attempted_loads:
       self.__cache_hit_rate = float(total_cache_hits) / cache_attempted_loads
     logger.debug("Cache hits: %d, Hit rate: %f" % (total_cache_hits,
                                                    self.__cache_hit_rate))
@@ -150,8 +151,8 @@ class _DatasetBase(object):
       max_images: The maximum number of images to load.
     Returns:
       How many images it loaded from the cache successfully. """
-    wnid, url = self._pick_random_image()
-    synset, number = wnid.split("_")
+    img_id, url = self._pick_random_image()
+    synset, number = utils.split_img_id(img_id)
 
     if self._cache.is_in_cache(synset, number):
       # It's in the cache, so load it and any additional sequential images.
@@ -160,7 +161,7 @@ class _DatasetBase(object):
     # We have to download the image instead.
     if not self._download_manager.download_new(synset, number, url):
       # We're already downloading that image.
-      logger.info("Already downloading %s. Picking new one..." % (wnid))
+      logger.info("Already downloading %s. Picking new one..." % (img_id))
       return self._load_random_images(max_images)
 
     return 0
@@ -176,8 +177,6 @@ class _DatasetBase(object):
       1 if it loaded something from the cache, 0 if it didn't. """
     # Use a simple heuristic to figure out how many images to try loading
     # sequentially.
-    print "Hit rate: %f, images: %d" % (self.__cache_hit_rate,
-                                        max_images)
     load_images = self.__cache_hit_rate * max_images
     load_images = int(load_images)
     load_images = max(load_images, 1)
@@ -198,11 +197,12 @@ class _DatasetBase(object):
       image: The actual image data to store.
       img_id: The ID of the image. """
     # Select a patch.
-    patches = data_augmentation.extract_patches(image, self._patch_shape)
-    image = patches[random.randint(0, len(patches) - 1)]
+    if self._patch_shape:
+      patches = data_augmentation.extract_patches(image, self._patch_shape)
+      image = patches[random.randint(0, len(patches) - 1)]
 
     # Add it to the buffer.
-    label, name = utils.split_(img_id)
+    label, name = utils.split_img_id(img_id)
     self._mem_buffer.add(image, name, label)
 
   def get_images(self):
@@ -239,7 +239,7 @@ class _DatasetBase(object):
     valid = set()
     for label in labels.keys():
       for img_id, _ in labels[label]:
-        valid.add(wnid)
+        valid.add(img_id)
 
     # Remove anything that's not in it.
     removed_image = False
@@ -270,7 +270,7 @@ class Dataset(_DatasetBase):
     super(Dataset, self).__init__(images, disk_cache, batch_size, image_shape,
                                   patch_shape=patch_shape)
 
-    # We need to size the buffer accordingly for what images sized images are
+    # We need to size the buffer accordingly for what size images are
     # going to be stored.
     buffer_shape = self._image_shape[:2]
     _, _, channels = self._image_shape
@@ -281,7 +281,7 @@ class Dataset(_DatasetBase):
                                           preload_batches, channels=channels)
     self._download_manager = \
         downloader.DownloadManager(self._cache,
-                                   self._mem_buffer,
+                                   self._mem_buffer, image_shape,
                                    patch_shape=self._patch_shape)
 
 
@@ -312,22 +312,17 @@ class PatchedDataset(_DatasetBase):
                                           num_patches=10)
     self._download_manager = \
         downloader.DownloadManager(self._cache,
-                                   self._mem_buffer,
+                                   self._mem_buffer, image_shape,
                                    all_patches=True,
                                    patch_shape=self._patch_shape)
 
-  def _get_cached_images(self, load_from_cache):
-    """ Bulk-loads a bunch of image data from the cache, pre-processes them, and
-    puts the in the memory buffer.
+  def _buffer_image(self, image, img_id):
+    """ Pre-process a loaded image and store it in the memory buffer.
     Args:
-      load_from_cache: The set of images to load. """
-    loaded, not_found = self._cache.bulk_get(load_from_cache)
-    assert not not_found
+      image: The actual image data to store.
+      img_id: The ID of the image. """
+    # Add all the patches.
+    patches = data_augmentation.extract_patches(image, self._patch_shape)
 
-    for img_id, image in loaded.iteritems():
-      # Add all the patches.
-      patches = data_augmentation.extract_patches(image)
-
-      # Add it to the buffer.
-      label, name = img_id.split("_")
-      self._mem_buffer.add_patches(patches, name, label)
+    label, name = utils.split_img_id(img_id)
+    self._mem_buffer.add_patches(patches, name, label)

@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 import cache
+import utils
 
 
 logger = logging.getLogger(__name__)
@@ -162,7 +163,7 @@ class DiskCacheTest(unittest.TestCase):
 
     # Add another image to image_pairs that doesn't exist.
     bad_name = "image%d" % (len(self.__images))
-    bad_id = "%s_%s" % ("synset1", bad_name)
+    bad_id = utils.make_img_id("synset1", bad_name)
     image_pairs.add(("synset1", bad_name))
 
     # Load everything.
@@ -171,7 +172,7 @@ class DiskCacheTest(unittest.TestCase):
     # Check that it found everything it should.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      img_id = "%s_%s" % ("synset1", name)
+      img_id = utils.make_img_id("synset1", name)
       self.assertIn(img_id, loaded)
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))
@@ -195,7 +196,7 @@ class DiskCacheTest(unittest.TestCase):
     # Check that it found everything it should.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      img_id = "%s_%s" % ("synset1", name)
+      img_id = utils.make_img_id("synset1", name)
       self.assertIn(img_id, loaded)
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))
@@ -218,7 +219,7 @@ class DiskCacheTest(unittest.TestCase):
     # Check that it found everything it should.
     for i, image in enumerate(self.__images[1:]):
       name = "image%d" % (i + 1)
-      img_id = "%s_%s" % ("synset1", name)
+      img_id = utils.make_img_id("synset1", name)
       self.assertIn(img_id, loaded)
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))
@@ -238,7 +239,7 @@ class DiskCacheTest(unittest.TestCase):
     # Check that it found everything it should.
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      img_id = "%s_%s" % ("synset1", name)
+      img_id = utils.make_img_id("synset1", name)
       self.assertIn(img_id, loaded)
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))
@@ -252,11 +253,11 @@ class DiskCacheTest(unittest.TestCase):
     use_only = set()
     for i, image in enumerate(self.__images):
       name = "image%d" % (i)
-      use_only.add("synset1_%s" % (name))
+      use_only.add(utils.make_img_id("synset1", name))
       self.__cache.add(image, name, "synset1")
 
     # Remove the first image from use_only.
-    use_only.remove("synset1_image0")
+    use_only.remove(utils.make_img_id("synset1", "image0"))
     # Try to read everything back from the cache.
     loaded = self.__cache.get_sequential("synset1", "image0",
                                          len(self.__images),
@@ -265,7 +266,7 @@ class DiskCacheTest(unittest.TestCase):
     # Check that it found everything except the first one.
     for i, image in enumerate(self.__images[1:]):
       name = "image%d" % (i + 1)
-      img_id = "%s_%s" % ("synset1", name)
+      img_id = utils.make_img_id("synset1", name)
       self.assertIn(img_id, loaded)
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))

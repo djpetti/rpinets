@@ -39,6 +39,7 @@ class ImageGetter(object):
     self._patch_shape = patch_shape
 
     self._preload_batches = preload_batches
+    self._test_percentage = test_percentage
     self._load_datasets_from = load_datasets_from
 
     self.__loaded_datasets = False

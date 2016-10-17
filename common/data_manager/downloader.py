@@ -36,22 +36,26 @@ class DownloaderProcess(multiprocessing.Process):
     logger.debug("Starting downloader process.")
 
     while True:
-      req_id, synset, number, url, patch_shape = self.__command_queue.get()
-      self.__download_image(req_id, synset, number, url, patch_shape)
+      req_id, synset, number, url, image_shape, patch_shape = \
+          self.__command_queue.get()
+      self.__download_image(req_id, synset, number, url, image_shape,
+                            patch_shape)
 
-  def __download_image(self, req_id, synset, number, url, patch_shape):
+  def __download_image(self, req_id, synset, number, url, image_shape,
+                       patch_shape):
     """ Downloads a single image.
     Args:
       req_id: The ID of the requesting download manager.
       synset: The image synset.
       number: The image number.
       url: The image url.
+      image_shape: The shape of the downloaded image.
       patch_shape: The shape of the patches to extract. If None, it will not
                    extract patches. """
     logger.debug("Downloading image for %d: %s_%s" % (req_id, synset, number))
 
-    # Download the image.
-    image = images.download_image(url, keep_color=True)
+    # Download the image. (The channels in the image shape are irrelevant.)
+    image = images.download_image(url, image_shape[:2], keep_color=True)
     if image is None:
       logger.warning("Failed to download %s." % (url))
       self.__image_queue.put((req_id, synset, number, url, None, None))
@@ -74,12 +78,13 @@ class DownloadManager(object):
   # Counter that gives each instance a unique id.
   _current_id = 0
 
-  def __init__(self, disk_cache, mem_buffer,
+  def __init__(self, disk_cache, mem_buffer, image_shape,
                patch_shape=None, all_patches=False):
     """
     Args:
       disk_cache: DiskCache to save downloaded images to.
       mem_buffer: MemoryBuffer to save downloaded images to.
+      image_shape: The shape that the downloaded images should be.
       patch_shape: The shape that extracted patches should be. It defaults to
                    None, in which case no patches will be extracted at all.
       all_patches: Whether to save all the patches, or just pick one at random.
@@ -89,6 +94,7 @@ class DownloadManager(object):
 
     self.__disk_cache = disk_cache
     self.__mem_buffer = mem_buffer
+    self.__image_shape = image_shape
     self.__patch_shape = patch_shape
     self.__all_patches = all_patches
 
@@ -115,7 +121,8 @@ class DownloadManager(object):
 
     # Add a new download.
     self.__pending.add((synset, number))
-    _command_queue.put((self.__id, synset, number, url, self.__patch_shape))
+    _command_queue.put((self.__id, synset, number, url, self.__image_shape,
+                        self.__patch_shape))
 
     return True
 

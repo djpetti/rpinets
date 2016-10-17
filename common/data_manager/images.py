@@ -75,7 +75,7 @@ def download_image(url, shape, keep_color=False):
   """ Downloads the image from the specified url.
   Args:
     url: The URL to download from.
-    shape: The shape we want the final image to be.
+    shape: The x and y shape we want the final image to be.
     keep_color: If False, images will be saved in grayscale.
   Returns:
     The image data that was downloaded.

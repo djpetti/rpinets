@@ -42,9 +42,13 @@ def _parse_url_file(file_data, separator=" ", get_utf=False):
       logger.warning("Skipping invalid URL: %s", url)
       continue
 
-    mappings.append([wnid, url])
+    # We use a custom encoding for image IDs, so we have to convert.
+    synset, name = wnid.split("_")
+    img_id = utils.make_img_id(synset, name)
+
+    mappings.append([img_id, url])
     if get_utf:
-      utf_mappings.append([wnid, unicode_url])
+      utf_mappings.append([img_id, unicode_url])
 
   if get_utf:
     return mappings, utf_mappings
@@ -112,7 +116,7 @@ class ImagenetGetter(image_getter.ImageGetter):
         self._train_set.save_images()
 
     else:
-      train, test = self.__split_train_test_images(test_percentage)
+      train, test = self.__split_train_test_images(self._test_percentage)
       self._make_new_datasets(train, test)
 
       if self._load_datasets_from:
@@ -496,7 +500,7 @@ class SynsetListImagenetGetter(ImagenetGetter):
     self._get_synset_urls(synsets)
 
 
-class SynsetFileImagetGetter(SynsetListImagenetGetter):
+class SynsetFileImagenetGetter(SynsetListImagenetGetter):
   """ Works like an ImagenetGetter, but only loads images from a predefined list of
   synsets specified in a file. """
 

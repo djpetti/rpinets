@@ -11,7 +11,7 @@ def extract_patches(image, patch_shape):
   Returns:
     The five extracted patches. """
   # Get the initial image shape.
-  width, height = image.shape
+  width, height, _ = image.shape
   new_width, new_height = patch_shape
 
   top_left = image[0:new_width, 0:new_height]

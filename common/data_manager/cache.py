@@ -332,7 +332,7 @@ class DiskCache(Cache):
     not_found = []
     to_remove = []
     for label, name in image_pairs:
-      img_id = "%s_%s" % (label, name)
+      img_id = utils.make_img_id(label, name)
       if not self.is_in_cache(label, name):
         not_found.append(img_id)
         to_remove.append((label, name))
@@ -349,7 +349,7 @@ class DiskCache(Cache):
     for label, name in sorted_pairs:
       image = self.__do_get(label, name)
       assert image is not None
-      img_id = "%s_%s" % (label, name)
+      img_id = utils.make_img_id(label, name)
       loaded[img_id] = image
 
     return loaded, not_found
@@ -393,7 +393,7 @@ class DiskCache(Cache):
         raise RuntimeError("Unexpected free space in cache. Please repair the \
                             cache.")
       img_id = self.__offsets[end_offset]
-      label, name = img_id.split("_")
+      label, name = utils.split_img_id(img_id)
       end_offset, size = self.__labels[label][name]
 
       old_end_offset = end_offset
@@ -571,7 +571,7 @@ class MemoryBuffer(Cache):
     patch_locations = []
     for i, patch in enumerate(patches):
       location = self.__fill_index + i * self.__batch_size
-      self.__storage[location] = self.__convert_image_for_buffer(image)
+      self.__storage[location] = self.__convert_image_for_buffer(patch)
       patch_locations.append(location)
 
 
@@ -652,11 +652,11 @@ class MemoryBuffer(Cache):
     """
     Returns:
       The total number of images in this buffer. """
-    return self.__data_in_buffer
+    return (self.__data_in_buffer / self.__num_patches)
 
   def space_remaining(self):
     """
     Returns:
       The total number of images that can still be added to this buffer before
       it's full. """
-    return self.get_max_patches() - self.__data_in_buffer
+    return (self.get_max_patches() - self.__data_in_buffer) / self.__num_patches

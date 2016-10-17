@@ -6,6 +6,6 @@ if [ "$#" -ne 1 ] || ! [ -d "$1" ]; then
   exit 1
 fi
 
-sudo nvidia-docker run --rm -ti -v "$(dirname "`pwd`")":/home/theano/rpinets \
+sudo nvidia-docker run --rm -ti -v "$(dirname "`pwd`/../../..")":/job_files \
     -v "$1":/home/theano/training_data --net=host \
     djpetti/rpinets-theano:imagenet_server /bin/bash

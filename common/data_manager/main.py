@@ -27,17 +27,19 @@ import cv2
 
 import numpy as np
 
-import image_getter
+import imagenet
 
 def main():
   logging.info("Starting...")
 
-  getter = image_getter.SynsetFileImageGetter("use_synsets.txt", "synsets",
-                                              "image_cache",
-                                              100, preload_batches=2)
+  getter = imagenet.SynsetFileImagenetGetter("use_synsets.txt", "synsets",
+                                             "image_cache",
+                                             100, (256, 256, 3),
+                                             preload_batches=2,
+                                             patch_shape=(224, 224))
 
-  for x in range(0, 10):
-    batch = getter.get_random_train_batch()
+  for x in range(0, 5):
+    batch = getter.get_random_test_batch()
 
     print batch[1]
     print len(batch[1])
