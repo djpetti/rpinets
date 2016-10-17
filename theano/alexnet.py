@@ -72,29 +72,15 @@ class AlexNet(LeNetClassifier):
                                      self._training: 0})
     return tester
 
-  def test(self, batch_index, expected_outputs):
-    """ A special tester that averages the softmax accross multiple
-    translations, as described in the AlexNet paper. It is assumed that
-    different translations of the same batch are stored as sequential batches in
-    the dataset.
+  def __accuracy_from_softmax(self, softmax):
+    """ Computes the top-one and top-five accuracies given a softmax
+    distribution.
     Args:
-      index: The index of the first batch to use.
-      expected_outputs: A non-symbolic copy of our expected outputs.
+      softmax: The softmax output from the network.
     Returns:
-      The accuracy of the network. """
-    # Since the tester does everything in terms of batch size, we need to
-    # convert patch_separation to batch sized units.
-    separation = self._patch_separation / self._batch_size
-    # Run for every patch.
-    for i in range(0, 10 * separation, separation):
-      self.__softmaxes.append(self._tester(batch_index + i))
-
-    # Find the mean distribution.
-    softmaxes = np.asarray(self.__softmaxes)
-    mean = np.mean(softmaxes, axis=0)
-
+      The top-one and top-five accuracy. """
     # Now find the accuracy.
-    sort = np.argsort(mean, axis=1)
+    sort = np.argsort(softmax, axis=1)
     top_one = sort[:, -1:]
     top_five = sort[:, -5:]
     top_one_accuracy = np.mean(np.equal(expected_outputs,
@@ -107,9 +93,42 @@ class AlexNet(LeNetClassifier):
         correct += 1
     top_five_accuracy = float(correct) / self._batch_size
 
+    return top_one_accuracy, top_five_accuracy
+
+  def test(self, batch_index, expected_outputs):
+    """ A special tester that averages the softmax accross multiple
+    translations, as described in the AlexNet paper. It is assumed that
+    different translations of the same batch are stored as sequential batches in
+    the dataset.
+    Args:
+      batch_index: The index of the first batch to use.
+      expected_outputs: A non-symbolic copy of our expected outputs.
+    Returns:
+      The top-one and top-five accuracy of the network. """
+    # Since the tester does everything in terms of batch size, we need to
+    # convert patch_separation to batch sized units.
+    separation = self._patch_separation / self._batch_size
+    # Run for every patch.
+    for i in range(0, 10 * separation, separation):
+      self.__softmaxes.append(self._tester(batch_index + i))
+
+    # Find the mean distribution.
+    softmaxes = np.asarray(self.__softmaxes)
+    mean = np.mean(softmaxes, axis=0)
+
     self.__softmaxes = []
 
-    return top_one_accuracy, top_five_accuracy
+    return self.__accuracy_from_softmax(mean)
+
+  def test_patchless(self, batch_index):
+    """ A simple tester that works the same as the superclass version, with no
+    patches.
+    Args:
+      batch_index: The index of the batch to use.
+    Returns:
+      The top-one and top-five accuracy of the network. """
+    softmax = super(AlexNet, self).test(batch_index)
+    return self.__accuracy_from_softmax(softmax)
 
   def l2_norm_backwards(self, index):
     """ A method useful for dreaming. Computes all the top network gradients for
