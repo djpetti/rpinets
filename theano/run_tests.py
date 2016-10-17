@@ -117,7 +117,7 @@ def run_imagenet_test():
   load_batches = 5
 
   # Learning rate hyperparameters.
-  learning_rate = 0.01
+  learning_rate = 0.00001
   decay_steps = 10000
   decay_rate = 1
   momentum = 0.9

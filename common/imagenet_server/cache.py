@@ -647,11 +647,11 @@ class MemoryBuffer(Cache):
     """
     Returns:
       The total number of images in this buffer. """
-    return self.__data_in_buffer
+    return (self.__data_in_buffer / self.__num_patches)
 
   def space_remaining(self):
     """
     Returns:
       The total number of images that can still be added to this buffer before
       it's full. """
-    return self.get_max_patches() - self.__data_in_buffer
+    return (self.get_max_patches() - self.__data_in_buffer) / self.__num_patches
