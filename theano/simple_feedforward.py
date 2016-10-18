@@ -3,6 +3,7 @@ libraries. """
 
 
 from six.moves import cPickle as pickle
+import logging
 import sys
 
 import theano
@@ -12,6 +13,9 @@ import theano.tensor as TT
 import numpy as np
 
 import utils
+
+
+logger = logging.getLogger(__name__)
 
 
 class FeedforwardNetwork(object):
@@ -124,6 +128,7 @@ class FeedforwardNetwork(object):
       # Initialize weights randomly.
       weights = self._make_initial_weights((fan_in, fan_out), layers[i])
       self.__our_weights.append(weights)
+      logger.debug("Adding weights with shape (%d, %d)." % (fan_in, fan_out))
       self.__weight_shapes.append((fan_in, fan_out))
 
       # Initialize biases.
@@ -141,16 +146,18 @@ class FeedforwardNetwork(object):
 
     self.__weight_shapes.append((fan_out, outputs))
 
-  def __add_layers(self, first_inputs, layers):
+  def __add_layers(self, first_inputs, layers, start_index=0):
     """ Adds as many hidden layers to our model as there are elements in
     __weights.
     Args:
       first_inputs: The tensor to use as inputs to the first hidden layer.
-      layers: The list of all the layers in this network. """
+      layers: The list of all the layers in this network.
+      start_index: The index in the weight list to start from when adding
+                   layers. """
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = first_inputs
-    for i in range(0, len(self.__our_weights)):
+    for i in range(start_index, len(self.__our_weights)):
       weights = self.__our_weights[i]
       _, fan_out = self.__weight_shapes[i]
       layer = layers[i]
@@ -178,6 +185,44 @@ class FeedforwardNetwork(object):
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
     self._biases.extend(self.__our_biases)
+
+  def replace_bottom_layers(self, replace_with, outputs):
+    """ Replaces a set of layers at the bottom of the network.
+    NOTE: Currently, this only works for layers that were added in the
+    feedforward part of the network.
+    Args:
+      replace_with: Set of replacement layers.
+      outputs: The new number of outputs the network will have. """
+    #TODO (danielp): Make this work for convolutional layers.
+    removing_layers = len(replace_with) + 1
+    logger.info("Replacing %d layers at bottom of network..." % \
+                (removing_layers))
+
+    # First, chop off the data for the layers we're getting rid of.
+    self.__our_weights = self.__our_weights[:-removing_layers]
+    self.__our_biases = self.__our_biases[:-removing_layers]
+    self._weights = self._weights[:-removing_layers]
+    self._biases = self._biases[:-removing_layers]
+    self.__weight_shapes = self.__weight_shapes[:-removing_layers]
+    self._intermediate_activations = \
+        self._intermediate_activations[:-removing_layers]
+
+    # Replace them with correct weights for the new layers.
+    self.__initialize_weights(replace_with, outputs)
+
+    # When we build layers, we need something to build them off of, which
+    # ideally should be the last layer that we didn't touch.
+    last_unchanged_layer = self._intermediate_activations[-1]
+    start_index = len(self.__our_weights) - removing_layers
+    # Now, actually build the new layers.
+    self.__add_layers(last_unchanged_layer, replace_with,
+                      start_index=start_index)
+
+    # Now we changed everything, so we have to rebuild all our functions.
+    logger.debug("Rebuilding functions...")
+    train = (self._train_x, self._train_y)
+    test = (self._test_x, self._test_y)
+    self.__rebuild_functions(train, test)
 
   def __build_model(self, layers, outputs):
     """ Actually constructs the graph for this model.
@@ -226,6 +271,43 @@ class FeedforwardNetwork(object):
       givens[self._training] = training
 
     return givens
+
+  def __rebuild_functions(self, train, test, learning_rate=None):
+    """ Reconstruct functions from a saved network.
+    Args:
+      train: Train dataset, with data and labels.
+      test: Test dataset, with data and labels.
+      learning_rate: Allows the user to override the saved learning rate. """
+    # If they didn't give us a test dataset, just don't build these functions.
+    if test:
+      # Set datasets.
+      network._test_x, network._test_y = test
+
+      # Build predictor.
+      network._prediction_operation = \
+          network._build_predictor(network._test_x, network._batch_size)
+      # Build tester.
+      network._tester = network._build_tester(network._test_x, network._test_y,
+                                              network._batch_size)
+
+    if train:
+      # Set datasets.
+      network._train_x, network._train_y = train
+
+      # Reconstruct the specified trainer.
+      builder = None
+      if network.__trainer_type == "rmsprop":
+        builder = network.use_rmsprop_trainer
+      if network.__trainer_type == "sgd":
+        builder = network.use_sgd_trainer
+
+      if builder:
+        params = list(network.__train_params)
+        if learning_rate != None:
+          # Use custom learning rate.
+          params[0] = learning_rate
+        builder(*params)
+
 
   def __make_params(self, train_layers):
     """ Creates the list of parameters to update on each training step.
@@ -480,35 +562,7 @@ class FeedforwardNetwork(object):
 
     network._batch_size = batch_size
 
-    # If they didn't give us a test dataset, just don't build these functions.
-    if test:
-      # Set datasets.
-      network._test_x, network._test_y = test
-
-      # Build predictor.
-      network._prediction_operation = \
-          network._build_predictor(network._test_x, network._batch_size)
-      # Build tester.
-      network._tester = network._build_tester(network._test_x, network._test_y,
-                                              network._batch_size)
-
-    if train:
-      # Set datasets.
-      network._train_x, network._train_y = train
-
-      # Reconstruct the specified trainer.
-      builder = None
-      if network.__trainer_type == "rmsprop":
-        builder = network.use_rmsprop_trainer
-      if network.__trainer_type == "sgd":
-        builder = network.use_sgd_trainer
-
-      if builder:
-        params = list(network.__train_params)
-        if learning_rate != None:
-          # Use custom learning rate.
-          params[0] = learning_rate
-        builder(*params)
+    self.__rebuild_functions(train, test, learning_rate=learning_rate)
 
     return network
 
