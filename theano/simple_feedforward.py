@@ -421,7 +421,8 @@ class FeedforwardNetwork(object):
     Returns:
       Theano function for testing the network. """
     index = TT.lscalar()
-    outputs = TT.argmax(self._layer_stack, axis=1)
+    softmax = TT.nnet.softmax(self._layer_stack)
+    outputs = TT.argmax(softmax, axis=1)
 
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
