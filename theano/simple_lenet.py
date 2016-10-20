@@ -30,12 +30,11 @@ class LeNetClassifier(FeedforwardNetwork):
       train: The training dataset.
       test: The testing dataset.
       batch_size: The size of each image batch. """
-    self._initialize_variables(train, test, batch_size, *args, **kwargs)
+    self._initialize_variables(layers, train, test, batch_size, *args, **kwargs)
 
-    conv_layers, feedforward_layers = self.__split_layers(layers)
     # We don't call the base class constructor here, because we want it to build
     # its network on top of our convolutional part.
-    self.__build_model(image_size, conv_layers, feedforward_layers, outputs)
+    self.__build_model(image_size, outputs)
 
   def __split_layers(self, layers):
     """ Splits layers from the convolutional and feedforward parts of the
@@ -158,15 +157,13 @@ class LeNetClassifier(FeedforwardNetwork):
     # Build the fully-connected part of the network.
     self._extend_with_feedforward(flattened_inputs, feedforward_layers, outputs)
 
-  def __build_model(self, image_size, conv_layers, feedforward_layers, outputs):
+  def __build_model(self, image_size, outputs):
     """ Constructs the graph for this model.
     Args:
       image_size: Size of the image.
-      conv_layers: A list of ConvLayer instances describing all the
-      convolutional layers.
-      feedforward_layers: A list denoting the number of inputs for each
-      feedforward layer.
       ouputs: The number of outputs of the network. """
+    conv_layers, feedforward_layers = self.__split_layers(self._layers)
+
     # Initialize all the weights first.
     num_inputs = feedforward_layers[0].size
     self.__initialize_weights(image_size, conv_layers, num_inputs)

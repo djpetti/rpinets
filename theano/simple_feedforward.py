@@ -25,9 +25,7 @@ class FeedforwardNetwork(object):
                patch_separation=None):
     """
     Args:
-      layers: A list of ints denoting the number of inputs for each layer. It
-      is assumed that the outputs of one layer will be the same size as the
-      inputs of the next one.
+      layers: A list of layer structures for the layers in the network.
       outputs: The number of outputs of the network.
       train: Training dataset, should be pair of inputs and expected outputs.
       test: Testing dataset, should be pair of inputs and expected outputs.
@@ -35,8 +33,9 @@ class FeedforwardNetwork(object):
       patch_separation: Specifies the distance between each patch of a given
                         image. If not provided, it is assumed to be the same
                         as the batch size. """
-    self._initialize_variables(train, test, batch_size, patch_separation)
-    self.__build_model(layers, outputs)
+    self._initialize_variables(layers, train, test, batch_size,
+                               patch_separation)
+    self.__build_model(outputs)
 
   def __getstate__(self):
     """ Gets the state for pickling. """
@@ -45,7 +44,7 @@ class FeedforwardNetwork(object):
              self.__train_params, self._global_step, self._srng,
              self._training, self._used_training,
              self._intermediate_activations,
-             self._patch_separation)
+             self._patch_separation, self._layers, self.__train_kw_params)
     return state
 
   def __setstate__(self, state):
@@ -54,16 +53,19 @@ class FeedforwardNetwork(object):
     self._expected_outputs, self.__trainer_type, self.__train_params, \
     self._global_step, self._srng, self._training, \
     self._used_training, self._intermediate_activations, \
-    self._patch_separation = state
+    self._patch_separation, self._layers, self.__train_kw_params = state
 
-  def _initialize_variables(self, train, test, batch_size,
+  def _initialize_variables(self, layers, train, test, batch_size,
                             patch_separation=None):
     """ Initializes variables that are common to all subclasses.
     Args:
+      layers: The layers of the network.
       train: Training set.
       test: Testing set.
       batch_size: Size of each minibatch.
       patch_separation: Distance between each patch of a given image. """
+    self._layers = layers
+
     self._train_x, self._train_y = train
     self._test_x, self._test_y = test
     self._batch_size = batch_size
@@ -81,6 +83,7 @@ class FeedforwardNetwork(object):
     self._optimizer = None
     self.__trainer_type = None
     self.__train_params = ()
+    self.__train_kw_params = {}
     # A global step to use for learning rate decays.
     self._global_step = theano.shared(0)
 
@@ -113,14 +116,16 @@ class FeedforwardNetwork(object):
   def __initialize_weights(self, layers, outputs):
     """ Initializes tensors containing the weights and biases for each layer.
     Args:
-      layers: A list denoting the number of inputs of each layer.
-      outputs: The number of outputs of the network. """
+      layers: A list of layer structures for the layers to initialize.
+      outputs: The number of outputs of the network.
+      fan_in: Overrides the default fan-in for the layers with a custom one. """
     self.__our_weights = []
     self.__our_biases = []
     # Keeps track of weight shapes because Theano is annoying about that.
     self.__weight_shapes = []
-    # This is in case we have a single hidden layer.
+
     fan_out = layers[0].size
+    i = 0
     for i in range(0, len(layers) - 1):
       fan_in = layers[i].size
       fan_out = layers[i + 1].size
@@ -146,18 +151,16 @@ class FeedforwardNetwork(object):
 
     self.__weight_shapes.append((fan_out, outputs))
 
-  def __add_layers(self, first_inputs, layers, start_index=0):
+  def __add_layers(self, first_inputs, layers):
     """ Adds as many hidden layers to our model as there are elements in
     __weights.
     Args:
       first_inputs: The tensor to use as inputs to the first hidden layer.
-      layers: The list of all the layers in this network.
-      start_index: The index in the weight list to start from when adding
-                   layers. """
+      layers: The list of all the layers in this network. """
     # Outputs from the previous layer that get used as inputs for the next
     # layer.
     next_inputs = first_inputs
-    for i in range(start_index, len(self.__our_weights)):
+    for i in range(0, len(self.__our_weights)):
       weights = self.__our_weights[i]
       _, fan_out = self.__weight_shapes[i]
       layer = layers[i]
@@ -199,15 +202,22 @@ class FeedforwardNetwork(object):
                 (removing_layers))
 
     # First, chop off the data for the layers we're getting rid of.
-    self.__our_weights = self.__our_weights[:-removing_layers]
-    self.__our_biases = self.__our_biases[:-removing_layers]
     self._weights = self._weights[:-removing_layers]
     self._biases = self._biases[:-removing_layers]
-    self.__weight_shapes = self.__weight_shapes[:-removing_layers]
     self._intermediate_activations = \
         self._intermediate_activations[:-removing_layers]
+    # self._layers doesn't contain the outputs.
+    if replace_with:
+      self._layers = self._layers[:-len(replace_with)]
 
-    # Replace them with correct weights for the new layers.
+    # We're going to also have to redo the layer above, so it can interface with
+    # the new ones.
+    interface_layer_specs = self._layers[-1]
+    replace_with.insert(0, interface_layer_specs)
+    logger.debug("Have %d inputs from the old stack." % \
+                 (interface_layer_specs.size))
+
+    # Build weights for new layers.
     self.__initialize_weights(replace_with, outputs)
 
     # When we build layers, we need something to build them off of, which
@@ -215,8 +225,15 @@ class FeedforwardNetwork(object):
     last_unchanged_layer = self._intermediate_activations[-1]
     start_index = len(self.__our_weights) - removing_layers
     # Now, actually build the new layers.
-    self.__add_layers(last_unchanged_layer, replace_with,
-                      start_index=start_index)
+    self.__add_layers(last_unchanged_layer, replace_with)
+
+    # Update the list of layers.
+    self._layers.extend(replace_with[1:])
+
+    # Since the layer stack changed, we have to update the cost.
+    self._cost = TT.mean( \
+        self._softmax_cross_entropy_with_logits(self._layer_stack,
+                                                self._expected_outputs))
 
     # Now we changed everything, so we have to rebuild all our functions.
     logger.debug("Rebuilding functions...")
@@ -224,20 +241,19 @@ class FeedforwardNetwork(object):
     test = (self._test_x, self._test_y)
     self.__rebuild_functions(train, test)
 
-  def __build_model(self, layers, outputs):
+  def __build_model(self, outputs):
     """ Actually constructs the graph for this model.
     Args:
-      layers: A list denoting the number of inputs of each layer.
       outputs: The number of outputs of the network. """
     # Initialize all the weights first.
-    self.__initialize_weights(layers, outputs)
+    self.__initialize_weights(self._layers, outputs)
 
     # Inputs and outputs.
     self._inputs = TT.fmatrix("inputs")
     self._expected_outputs = TT.ivector("expected_outputs")
 
     # Build actual layer model.
-    self.__add_layers(self._inputs, layers)
+    self.__add_layers(self._inputs, self._layers)
 
     # Cost function.
     self._cost = TT.mean( \
@@ -272,41 +288,48 @@ class FeedforwardNetwork(object):
 
     return givens
 
-  def __rebuild_functions(self, train, test, learning_rate=None):
+  def __rebuild_functions(self, train, test, learning_rate=None,
+                          train_layers=None):
     """ Reconstruct functions from a saved network.
     Args:
       train: Train dataset, with data and labels.
       test: Test dataset, with data and labels.
-      learning_rate: Allows the user to override the saved learning rate. """
+      learning_rate: Allows the user to override the saved learning rate.
+      train_layers: List of layers to actually train. All the rest will be left
+                    untouched. """
     # If they didn't give us a test dataset, just don't build these functions.
     if test:
       # Set datasets.
-      network._test_x, network._test_y = test
+      self._test_x, self._test_y = test
 
       # Build predictor.
-      network._prediction_operation = \
-          network._build_predictor(network._test_x, network._batch_size)
+      self._prediction_operation = \
+          self._build_predictor(self._test_x, self._batch_size)
       # Build tester.
-      network._tester = network._build_tester(network._test_x, network._test_y,
-                                              network._batch_size)
+      self._tester = self._build_tester(self._test_x, self._test_y,
+                                        self._batch_size)
 
     if train:
       # Set datasets.
-      network._train_x, network._train_y = train
+      self._train_x, self._train_y = train
 
       # Reconstruct the specified trainer.
       builder = None
-      if network.__trainer_type == "rmsprop":
-        builder = network.use_rmsprop_trainer
-      if network.__trainer_type == "sgd":
-        builder = network.use_sgd_trainer
+      if self.__trainer_type == "rmsprop":
+        builder = self.use_rmsprop_trainer
+      if self.__trainer_type == "sgd":
+        builder = self.use_sgd_trainer
 
       if builder:
-        params = list(network.__train_params)
+        params = list(self.__train_params)
+        kw_params = self.__train_kw_params
         if learning_rate != None:
           # Use custom learning rate.
           params[0] = learning_rate
-        builder(*params)
+        if train_layers != None:
+          # Use custom list of layers to train.
+          kw_params["train_layers"] = train_layers
+        builder(*params, **kw_params)
 
 
   def __make_params(self, train_layers):
@@ -460,7 +483,7 @@ class FeedforwardNetwork(object):
     self.__add_layers(inputs, layers)
 
   def use_sgd_trainer(self, learning_rate, momentum=0.9, weight_decay=0.0005,
-                      decay_rate=1, decay_steps=0, train_layers=None):
+                      decay_rate=1, decay_steps=1, train_layers=None):
     """ Tells it to use SGD to train the network.
     Args:
       learning_rate: The learning rate to use for training.
@@ -472,8 +495,10 @@ class FeedforwardNetwork(object):
       specified, it will train all of them. """
     # Save these for use when saving and loading the network.
     self.__trainer_type = "sgd"
-    self.__train_params = (learning_rate, momentum, weight_decay,
-                           decay_rate, decay_steps)
+    self.__train_params = (learning_rate, momentum, weight_decay)
+    self.__train_kw_params = {"decay_rate": decay_rate,
+                              "decay_steps": decay_steps,
+                              "train_layers": train_layers}
 
     # Handle learning rate decay.
     decayed_learning_rate = \
@@ -486,7 +511,7 @@ class FeedforwardNetwork(object):
                                               self._batch_size, train_layers)
 
   def use_rmsprop_trainer(self, learning_rate, rho, epsilon, decay_rate=1,
-                          decay_steps=0, train_layers=None):
+                          decay_steps=1, train_layers=None):
     """ Tells it to use RMSProp to train the network.
     Args:
       learning_rate: The learning rate to use for training.
@@ -498,7 +523,10 @@ class FeedforwardNetwork(object):
       specified, it will train all of them. """
     # Save these for use when saving and loading the network.
     self.__trainer_type = "rmsprop"
-    self.__train_params = (learning_rate, rho, epsilon, decay_rate, decay_steps)
+    self.__train_params = (learning_rate, rho, epsilon)
+    self.__train_kw_params = {"decay_rate": decay_rate,
+                              "decay_steps": decay_steps,
+                              "train_layers": train_layers}
 
     # Handle learning rate decay.
     decayed_learning_rate = \
@@ -544,7 +572,8 @@ class FeedforwardNetwork(object):
     file_object.close()
 
   @classmethod
-  def load(cls, filename, train, test, batch_size, learning_rate=None):
+  def load(cls, filename, train, test, batch_size, learning_rate=None,
+           train_layers=None):
     """ Loads the network from a file.
     Args:
       filename: The name of the file to load from.
@@ -554,6 +583,8 @@ class FeedforwardNetwork(object):
       predictor and tester functions.
       batch_size: The batch size to use.
       learning_rate: Allows us to specify a new learning rate for the network.
+      train_layers: List of layers to actually train, the rest will be left
+                    untouched.
     Returns:
       The loaded network. """
     file_object = open(filename, "rb")
@@ -562,7 +593,8 @@ class FeedforwardNetwork(object):
 
     network._batch_size = batch_size
 
-    self.__rebuild_functions(train, test, learning_rate=learning_rate)
+    network.__rebuild_functions(train, test, learning_rate=learning_rate,
+                                train_layers=train_layers)
 
     return network
 
