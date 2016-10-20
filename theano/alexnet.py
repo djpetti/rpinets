@@ -48,7 +48,7 @@ class AlexNet(LeNetClassifier):
       inner_product2 = layers.InnerProductLayer(size=4096, weight_init="gaussian",
                                                 weight_stddev=0.005)
       norm = layers.NormalizationLayer(depth_radius=5, alpha=1e-05 ,beta=0.75,
-                                      bias=1.0)
+                                       bias=1.0)
 
       use_layers = [conv1, pool, norm, conv2, pool, norm, conv3, conv4, conv5, pool,
                     flatten, inner_product1, inner_product2]
@@ -72,11 +72,12 @@ class AlexNet(LeNetClassifier):
                                      self._training: 0})
     return tester
 
-  def __accuracy_from_softmax(self, softmax):
+  def __accuracy_from_softmax(self, softmax, expected_outputs):
     """ Computes the top-one and top-five accuracies given a softmax
     distribution.
     Args:
       softmax: The softmax output from the network.
+      expected_outputs: A non-symbolic copy of our expected outputs.
     Returns:
       The top-one and top-five accuracy. """
     # Now find the accuracy.
@@ -118,17 +119,18 @@ class AlexNet(LeNetClassifier):
 
     self.__softmaxes = []
 
-    return self.__accuracy_from_softmax(mean)
+    return self.__accuracy_from_softmax(mean, expected_outputs)
 
-  def test_patchless(self, batch_index):
+  def test_patchless(self, batch_index, expected_outputs):
     """ A simple tester that works the same as the superclass version, with no
     patches.
     Args:
       batch_index: The index of the batch to use.
+      expected_outputs: A non-symbolic copy of our expected outputs.
     Returns:
       The top-one and top-five accuracy of the network. """
     softmax = super(AlexNet, self).test(batch_index)
-    return self.__accuracy_from_softmax(softmax)
+    return self.__accuracy_from_softmax(softmax, expected_outputs)
 
   def l2_norm_backwards(self, index):
     """ A method useful for dreaming. Computes all the top network gradients for
