@@ -32,6 +32,13 @@ class ImageGetter(object):
                    will be used directly. Furthermore, if this is specified, the
                    batches from the testing dataset will contain copies of every
                    patch. """
+    if len(image_shape) != 3:
+      raise ValueError( \
+          "Expected image shape of form (x size, y size, channels).")
+    if patch_shape and len(patch_shape) != 2:
+      raise ValueError( \
+          "Expected patch shape of form (x size, y size).")
+
     self._cache = cache.DiskCache(cache_location, 50000000000)
     self._batch_size = batch_size
 
