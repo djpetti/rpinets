@@ -129,8 +129,17 @@ def run_imagenet_test():
   # Where we save the network.
   save_file = "/home/theano/training_data/alexnet.pkl"
   synsets_save_file = "/home/theano/training_data/synsets.pkl"
+  # Where we load the synsets to use from.
+  synset_list = "/job_files/ilsvrc16_synsets.txt"
+  # Where to load and save datasets.
+  dataset_path = "/home/theano/training_data/ilsvrc16_dataset"
+  # Where to cache image data.
+  cache_path = "/home/theano/training_data/cache"
+  # Where to save downloaded synset info.
+  synset_dir = "/home/theano/training_data/synsets"
 
-  data = data_loader.ImagenetLoader(batch_size, load_batches)
+  data = data_loader.ImagenetLoader(batch_size, load_batches, cache_path,
+                                    dataset_path, synset_dir, synset_list)
   if os.path.exists(synsets_save_file):
     data.load(synsets_save_file)
   train = data.get_train_set()

@@ -27,15 +27,6 @@ import theano.tensor as TT
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
 
-# Synset list for ILSVRC16.
-ILSVRC16_SYNSETS = "/job_files/ilsvrc16_synsets.txt"
-# Where to store downloaded synset data.
-SYNSET_LOCATION = "/home/theano/training_data/synsets"
-# Where to cache downloaded files.
-CACHE_LOCATION = "/home/theano/training_data/cache"
-# Where to write dataset information.
-DATASET_LOCATION = "/home/theano/training_data/ilsvrc16_dataset"
-
 
 logger = logging.getLogger(__name__)
 
@@ -180,13 +171,14 @@ class Mnist(Loader):
 class DataManagerLoader(Loader):
   """ Loads datasets concurrently with the help of the data_manager package. """
 
-  def __init__(self, batch_size, load_batches, image_shape, dataset_location,
-               patch_shape=None):
+  def __init__(self, batch_size, load_batches, image_shape, cache_location,
+               dataset_location, patch_shape=None):
     """
     Args:
       batch_size: How many images are in each batch.
       load_batches: How many batches to have in VRAM at any given time.
       image_shape: The shape of the images that will be loaded.
+      cache_location: The location of the image cache.
       dataset_location: The common part of the path to the files that we will be
       loading our training and testing datasets from.
       patch_shape: The shape of the patches that will be extracted from the
@@ -195,6 +187,7 @@ class DataManagerLoader(Loader):
     super(DataManagerLoader, self).__init__()
 
     self._image_shape = image_shape
+    self._cache_location = cache_location
     self._dataset_location = dataset_location
     self._patch_shape = patch_shape
 
@@ -299,7 +292,7 @@ class DataManagerLoader(Loader):
     """ Initializes the specific ImageGetter that we will use to get images.
     This can be overriden by subclasses to add specific functionality. """
     self._image_getter = \
-        image_getter.ImageGetter(CACHE_LOCATION, self._buffer_size,
+        image_getter.ImageGetter(self._cache_location, self._buffer_size,
                                  self._image_shape, preload_batches=2,
                                  load_datasets_from=self._dataset_location,
                                  patch_shape=self._patch_shape)
@@ -481,17 +474,27 @@ class DataManagerLoader(Loader):
 class ImagenetLoader(DataManagerLoader):
   """ Loads data from imagenet. """
 
-  def __init__(self, batch_size, load_batches):
-    """ See superclass documentation for this method. """
+  def __init__(self, batch_size, load_batches, cache_location, dataset_location,
+               synset_location, synset_file):
+    """ See superclass documentation for this method.
+    Additional Args:
+      synset_location: Where to store downloaded synset data.
+      synset_file: The file to load the synsets to use from. """
+    self.__synset_location = synset_location
+    self.__synset_file = synset_file
+
     super(ImagenetLoader, self).__init__(batch_size, load_batches,
-                                         DATASET_LOCATION)
+                                         (256, 256, 3), cache_location,
+                                         datatset_location,
+                                         patch_shape=(244, 244))
 
   def _init_image_getter(self):
     """ Initializes the specific ImageGetter that we will use to get images.
     """
     self._image_getter = \
         imagenet.SynsetFileImagenetGetter( \
-            ILSVRC16_SYNSETS, SYNSET_LOCATION, CACHE_LOCATION,
-            self._buffer_size, (256, 256, 3), preload_batches=2,
-            load_datasets_from=self._dataset_location, patch_shape=(224, 224))
+            self.__synset_file, self.__synset_location, self._cache_location,
+            self._buffer_size, self._image_shape, preload_batches=2,
+            load_datasets_from=self._dataset_location,
+            patch_shape=self._patch_shape)
 
