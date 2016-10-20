@@ -387,6 +387,7 @@ class DiskCache(Cache):
     num_loaded = 0
     to_load = []
 
+    num_rejected = 0
     while (num_loaded < number_of_images and end_offset < total_size):
       # Find the next image.
       if end_offset not in self.__offsets:
@@ -414,6 +415,14 @@ class DiskCache(Cache):
       # total number of images loaded.
       if (use_only == None or img_id in use_only):
         num_loaded += 1
+      else:
+        num_rejected += 1
+        if num_rejected > number_of_images:
+          # At this point, our loading is going to be very inneficient and
+          # possibly require an unfeasible amount of memory, so we might as well
+          # give up.
+          logger.debug("Got too many bad images, giving up.")
+          break
 
     # Read that part of the file.
     logger.debug("Reading file from %d to %d." % (start_offset, end_offset))
