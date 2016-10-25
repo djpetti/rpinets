@@ -163,11 +163,14 @@ def download_words(wnid):
   logger.info("Got words for synset: %s", words)
   return words
 
-def reshape_image(image, shape):
+def reshape_image(image, shape, offset=(0, 0)):
   """ Reshapes a stored image so that it is a consistent shape and size.
   Args:
     image: The image to reshape.
     shape: The shape we want the image to be.
+    offset: An optional offset. This can be used to direct it not to crop to the
+            center of the image. In the tuple, the horizontal offset comes
+            before the vertical one.
   Returns:
     The reshaped image.
   """
@@ -210,6 +213,17 @@ def reshape_image(image, shape):
   # Crop the image.
   crop_left = (width - crop_width) / 2
   crop_top = (height - crop_height) / 2
+
+  # Account for the crop offset.
+  offset_left, offset_top = offset
+  crop_left += offset_left
+  crop_top += offset_top
+  # Bound it in the image.
+  crop_left = max(0, crop_left)
+  crop_left = min(width - 1, crop_left)
+  crop_top = max(0, crop_top)
+  crop_top = min(height - 1, crop_top)
+
   image = image[crop_top:(crop_height + crop_top),
                 crop_left:(crop_width + crop_left)]
 

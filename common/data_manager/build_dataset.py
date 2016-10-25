@@ -17,14 +17,13 @@ import images
 import utils
 
 
-def _process_label(label, path, image_list, size):
+def _process_label(label, path, image_list):
   """ Processes all the images in a single label.
   Args:
     label: The name of the label.
     path: The base path where all the label directories are.
     image_list: The list containing tuples of the lable, name, and path
-    for all the images loaded so far. This will be added to.
-    size: The x and y size of each image in the dataset. """
+    for all the images loaded so far. This will be added to. """
   print "Processing label: %s" % (label)
 
   label_path = os.path.join(path, label)
@@ -34,13 +33,14 @@ def _process_label(label, path, image_list, size):
     image_path = os.path.join(label_path, image)
     image_list.append((label, image, image_path))
 
-def _build_dataset(path, disk_cache, size):
+def _build_dataset(path, disk_cache, size, offset):
   """ Builds a new dataset, and adds images to the disk cache.
   Args:
     path: The path to the images, which should be separated by folder into
           categories.
     disk_cache: The DiskCache to add loaded images to.
     size: The x and y size of each image in the dataset.
+    offset: The x and y offset to use when resizing each image.
   Returns:
     dataset: The dataset that was built from the data. """
   print "Building dataset from images at %s..." % (path)
@@ -58,7 +58,7 @@ def _build_dataset(path, disk_cache, size):
       continue
 
     # Read the contents of the directory.
-    _process_label(label, path, dataset_images, size)
+    _process_label(label, path, dataset_images)
 
   # Shuffle the images, and load them into the cache randomly. This is so that
   # contiguous loading from the cache actually works.
@@ -77,7 +77,7 @@ def _build_dataset(path, disk_cache, size):
       continue
 
     # Reshape the image.
-    image_data = images.reshape_image(image_data, size)
+    image_data = images.reshape_image(image_data, size, offset=offset)
     # Add to the cache.
     disk_cache.add(image_data, name, label)
 
@@ -100,12 +100,14 @@ def _build_dataset(path, disk_cache, size):
   data = dataset.Dataset(dataset_entries, disk_cache, 0, (0, 0, 0))
   return data
 
-def convert_dataset(location, size, output):
+def convert_dataset(location, size, output, offset=(0, 0)):
   """ Converts a dataset to a format that's usable by data_manager.
   Args:
     location: The location of the dataset to convert.
     size: The x and y sizes of each image in the dataset.
-    output: The location to write output files to. """
+    output: The location to write output files to.
+    offset: Optional offset to use for width and height when resizing the image.
+  """
   # The conversion works by reading all the images and adding them to a
   # DiskCache.
   disk_cache = cache.DiskCache(output)
@@ -113,8 +115,8 @@ def convert_dataset(location, size, output):
   # Individual categories are contained in the train and test directories.
   train_path = os.path.join(location, "train")
   test_path = os.path.join(location, "test")
-  train_set = _build_dataset(train_path, disk_cache, size)
-  test_set = _build_dataset(test_path, disk_cache, size)
+  train_set = _build_dataset(train_path, disk_cache, size, offset)
+  test_set = _build_dataset(test_path, disk_cache, size, offset)
 
   # Save the datasets to the disk.
   print "Saving dataset_train.pkl..."
@@ -135,9 +137,14 @@ def main():
   parser.add_argument("dataset", help="The location of the dataset to convert.")
   parser.add_argument("-o", "--output", default=".",
                       help="Location to write output to.")
+  parser.add_argument("-w", "--offset_width", default=0, type=int,
+                      help="Width offset for each image.")
+  parser.add_argument("-H", "--offset_height", default=0, type=int,
+                      help="Height offset for each image.")
   args = parser.parse_args()
 
-  convert_dataset(args.dataset, (args.width, args.height), args.output)
+  convert_dataset(args.dataset, (args.width, args.height), args.output,
+                  offset=(args.offset_width, args.offset_height))
 
 
 if __name__ == "__main__":
