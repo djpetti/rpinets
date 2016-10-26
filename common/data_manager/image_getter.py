@@ -12,7 +12,7 @@ class ImageGetter(object):
 
   def __init__(self, cache_location, batch_size, image_shape,
                preload_batches=1, test_percentage=0.1,
-               load_datasets_from=None, patch_shape=None):
+               load_datasets_from=None, patch_shape=None, patch_flip=True):
     """
     Args:
       cache_location: Where to cache downloaded images. Will be created if it
@@ -31,7 +31,8 @@ class ImageGetter(object):
                    is None, no patches will be extracted, and the raw images
                    will be used directly. Furthermore, if this is specified, the
                    batches from the testing dataset will contain copies of every
-                   patch. """
+                   patch.
+      patch_flip: Whether to include horizontally flipped patches. """
     if len(image_shape) != 3:
       raise ValueError( \
           "Expected image shape of form (x size, y size, channels).")
@@ -44,6 +45,7 @@ class ImageGetter(object):
 
     self._image_shape = image_shape
     self._patch_shape = patch_shape
+    self._patch_flip = patch_flip
 
     self._preload_batches = preload_batches
     self._test_percentage = test_percentage
@@ -69,7 +71,8 @@ class ImageGetter(object):
                                       self._batch_size,
                                       self._image_shape,
                                       preload_batches=self._preload_batches,
-                                      patch_shape=self._patch_shape)
+                                      patch_shape=self._patch_shape,
+                                      patch_flip=self._patch_flip)
     if self._patch_shape:
       # Use all the patches in the test set.
       self._test_set = dataset.PatchedDataset(test_data, self._cache,
@@ -77,13 +80,15 @@ class ImageGetter(object):
                                               self._image_shape,
                                               preload_batches= \
                                                   self._preload_batches,
-                                              patch_shape=self._patch_shape)
+                                              patch_shape=self._patch_shape,
+                                              patch_flip=self._patch_flip)
     else:
       # No patches.
       self._test_set = dataset.Dataset(test_data, self._cache,
                                        self._batch_size, self._image_shape,
                                        preload_batches=self._preload_batches,
-                                       patch_shape=self._patch_shape)
+                                       patch_shape=self._patch_shape,
+                                       patch_flip=self._patch_flip)
 
   def _init_datasets(self):
     """ Initializes the training and testing datasets. """

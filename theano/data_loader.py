@@ -172,7 +172,7 @@ class DataManagerLoader(Loader):
   """ Loads datasets concurrently with the help of the data_manager package. """
 
   def __init__(self, batch_size, load_batches, image_shape, cache_location,
-               dataset_location, patch_shape=None):
+               dataset_location, patch_shape=None, patch_flip=True):
     """
     Args:
       batch_size: How many images are in each batch.
@@ -183,13 +183,15 @@ class DataManagerLoader(Loader):
       loading our training and testing datasets from.
       patch_shape: The shape of the patches that will be extracted from the
       images. If None, no patches will be extracted, and the raw images will be
-      used directly. """
+      used directly.
+      patch_flip: Whether to include flipped patches. """
     super(DataManagerLoader, self).__init__()
 
     self._image_shape = image_shape
     self._cache_location = cache_location
     self._dataset_location = dataset_location
     self._patch_shape = patch_shape
+    self._patch_flip = patch_flip
 
     # Register signal handlers.
     signal.signal(signal.SIGTERM, self.__on_signal)
@@ -295,7 +297,8 @@ class DataManagerLoader(Loader):
         image_getter.ImageGetter(self._cache_location, self._buffer_size,
                                  self._image_shape, preload_batches=2,
                                  load_datasets_from=self._dataset_location,
-                                 patch_shape=self._patch_shape)
+                                 patch_shape=self._patch_shape,
+                                 patch_flip=self._patch_flip)
 
   def __convert_labels_to_ints(self, labels):
     """ Converts a set of labels from the default label names to integers, so

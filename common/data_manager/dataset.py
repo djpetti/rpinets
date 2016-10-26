@@ -19,7 +19,7 @@ class _DatasetBase(object):
   randomly from. """
 
   def __init__(self, images, disk_cache, batch_size, image_shape,
-               patch_shape=None):
+               patch_shape=None, patch_flip=True):
     """
     Args:
       images: The list of images that makes up this dataset. The list should
@@ -32,7 +32,8 @@ class _DatasetBase(object):
                    raw images, and the number of channels.
       patch_shape: The shape of the patches to extract from images. If it is
                    None, no patches will be extracted, and the base image will
-                   be used instead."""
+                   be used instead.
+      patch_flip: Whether to include flipped patches. """
     self._image_shape = image_shape
 
     # Split image data into a set with just the IDs, and a map of the IDs to the
@@ -49,6 +50,7 @@ class _DatasetBase(object):
 
     self._batch_size = batch_size
     self._patch_shape = patch_shape
+    self._patch_flip = patch_flip
 
     # The fraction of the last batch that it was able to find in the cache.
     self.__cache_hit_rate = 0.0
@@ -198,7 +200,8 @@ class _DatasetBase(object):
       img_id: The ID of the image. """
     # Select a patch.
     if self._patch_shape:
-      patches = data_augmentation.extract_patches(image, self._patch_shape)
+      patches = data_augmentation.extract_patches(image, self._patch_shape,
+                                                  flip=self._patch_flip)
       image = patches[random.randint(0, len(patches) - 1)]
 
     # Add it to the buffer.
@@ -259,16 +262,14 @@ class Dataset(_DatasetBase):
   """ A standard dataset. """
 
   def __init__(self, images, disk_cache, batch_size, image_shape,
-               preload_batches=1, patch_shape=None):
+               preload_batches=1, patch_shape=None, patch_flip=True):
     """ See documentation for superclass method.
     Extra Args:
       preload_batches: How many additional batches to preload. This can greatly
-                       increase performace, but uses additional RAM.
-      patch_shape: A two-element tuple containing the size of each patch. If it
-                   is None, no patches will be extracted, and the image will be
-                   saved directly. """
+                       increase performace, but uses additional RAM. """
     super(Dataset, self).__init__(images, disk_cache, batch_size, image_shape,
-                                  patch_shape=patch_shape)
+                                  patch_shape=patch_shape,
+                                  patch_flip=patch_flip)
 
     # We need to size the buffer accordingly for what size images are
     # going to be stored.
@@ -287,29 +288,34 @@ class Dataset(_DatasetBase):
 
 class PatchedDataset(_DatasetBase):
   """ Dataset that extracts every patch for each image, and stores
-  10 versions of each batch, one for each patch type. """
+  one version of each batch for every patch type. """
 
   def __init__(self, images, disk_cache, batch_size, image_shape,
-               preload_batches=1, patch_shape=None):
+               preload_batches=1, patch_shape=None, patch_flip=True):
     """ See documentation for _DatasetBase __init__ function.
     NOTE: batch_size here represents the base batch size. When you request a
     batch, it will actually return 10 times this many images, since it will use
     all the patches.
     Extra Args:
-      patch_shape: A two-element tuple containing the size of each patch.
       preload_batches: How many additional batches to preload. This can greatly
                        increase performace, but uses additional RAM. """
     if not patch_shape:
       raise ValueError("Keyword arg patch_shape is required for PatchedDataset.")
 
     super(PatchedDataset, self).__init__(images, disk_cache, batch_size,
-                                         image_shape, patch_shape=patch_shape)
+                                         image_shape, patch_shape=patch_shape,
+                                         patch_flip=patch_flip)
 
-    # We need 10x the buffer space to store the extra patches.
+    # We need extra buffer space to store the extra patches.
+    num_patches = 10
+    if not patch_flip:
+      # We're not storing flipped patches, which halves our storage
+      # requirements.
+      num_patches /= 2
     _, _, channels = self._image_shape
     self._mem_buffer = cache.MemoryBuffer(self._patch_shape, batch_size,
                                           preload_batches, channels=channels,
-                                          num_patches=10)
+                                          num_patches=num_patches)
     self._download_manager = \
         downloader.DownloadManager(self._cache,
                                    self._mem_buffer, image_shape,
@@ -322,7 +328,8 @@ class PatchedDataset(_DatasetBase):
       image: The actual image data to store.
       img_id: The ID of the image. """
     # Add all the patches.
-    patches = data_augmentation.extract_patches(image, self._patch_shape)
+    patches = data_augmentation.extract_patches(image, self._patch_shape,
+                                                flip=self._patch_flip)
 
     label, name = utils.split_img_id(img_id)
     self._mem_buffer.add_patches(patches, name, label)
