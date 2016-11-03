@@ -208,6 +208,9 @@ class DataManagerLoader(Loader):
     if not self._patch_shape:
       # No patches.
       self._test_batch_size = self._buffer_size
+    elif not patch_flip:
+      # We only have five patches.
+      self._test_batch_size = self._buffer_size * 5
     else:
       # We have to account for all the patches.
       self._test_batch_size = self._buffer_size * 10
@@ -223,6 +226,9 @@ class DataManagerLoader(Loader):
     self.__train_buffer_full = threading.Lock()
     self.__test_buffer_empty = threading.Lock()
     self.__test_buffer_full = threading.Lock()
+    # Lock to protect accesses to data in CPU memory.
+    self.__train_cpu_lock = threading.Lock()
+    self.__test_cpu_lock = threading.Lock()
 
     self.__batch_size = batch_size
     self.__load_batches = load_batches
@@ -234,7 +240,12 @@ class DataManagerLoader(Loader):
     # Labels have to be integers, so that means we have to map labels to
     # integers.
     self.__labels = {}
+    # Map that goes in the opposite direction.
+    self.__reverse_labels = {}
     self.__current_label = 0
+    # Image ID values for the loaded images.
+    self.__training_names = []
+    self.__testing_names = []
 
     # This is an event that signals to the internal threads that it's time to
     # exit.
@@ -304,14 +315,14 @@ class DataManagerLoader(Loader):
     """ Loads raw image and label data from somewhere.
     This can be overriden by subclasses to add specific functionality.
     Returns:
-      The loaded images and labels. """
+      The loaded images, labels, and names. """
     return self._image_getter.get_random_train_batch()
 
   def _load_raw_testing_batch(self):
     """ Loads raw image and label data from somewhere.
     This can be overriden by subclasses to add specific functionality.
     Returns:
-      The loaded images and labels. """
+      The loaded images, labels, and names. """
     return self._image_getter.get_random_test_batch()
 
   def __convert_labels_to_ints(self, labels):
@@ -329,46 +340,43 @@ class DataManagerLoader(Loader):
         # This is the first time we've seen this label.
         converted.append(self.__current_label)
         self.__labels[label] = self.__current_label
+        self.__reverse_labels[self.__current_label] = label
         self.__current_label += 1
 
     return converted
 
   def __load_next_training_batch(self):
     """ Loads the next batch of training data from the Imagenet backend. """
-    self.__training_buffer, labels = self._load_raw_training_batch()
+    self.__training_buffer, labels, names = self._load_raw_training_batch()
     logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
     logger.debug("Training mean: %f" % mean)
 
+    self.__train_cpu_lock.acquire()
+
+    self.__training_names = names
     # Convert labels.
     self.__training_labels = self.__convert_labels_to_ints(labels)
 
-    # Show image thumbnails.
-    #film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
-    #                             for i in self.__training_buffer[0:8]], axis=1)
-    #cv2.imshow("Input Images", film_strip)
-    # Force it to update the window.
-    #cv2.waitKey(1)
+    self.__train_cpu_lock.release()
 
     self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
     self.__training_buffer -= mean
 
   def __load_next_testing_batch(self):
     """ Loads the next batch of testing data from the Imagenet backend. """
-    self.__testing_buffer, labels = self._load_raw_testing_batch()
+    self.__testing_buffer, labels, names = self._load_raw_testing_batch()
     logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
     logger.debug("Testing mean: %f" % mean)
 
+    self.__test_cpu_lock.acquire()
+
+    self.__testing_names = names
     # Convert labels.
     self.__testing_labels = self.__convert_labels_to_ints(labels)
 
-    # Show image thumbnails.
-    #film_strip = np.concatenate([np.transpose(i, (1, 2, 0)) \
-    #                             for i in self.__testing_buffer[0:8]], axis=1)
-    #cv2.imshow("Input Images", film_strip)
-    # Force it to update the window.
-    #cv2.waitKey(1)
+    self.__test_cpu_lock.release()
 
     self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
     self.__testing_buffer -= mean
@@ -466,8 +474,44 @@ class DataManagerLoader(Loader):
     return super(DataManagerLoader, self).get_test_set()
 
   def get_non_shared_test_set(self):
-    """ Gets a non-shared version of the test set, useful for AlexNet. """
-    return self.__testing_labels
+    """
+    Returns:
+      A non-shared version of the test set, useful for AlexNet. """
+    self.__test_cpu_lock.acquire()
+    labels = self.__testing_labels[:]
+    self.__test_cpu_lock.release()
+
+    return labels
+
+  def get_non_shared_train_set(self):
+    """
+    Returns:
+      A non-shared version of the train set. """
+    self.__train_cpu_lock.acquire()
+    labels = self.__training_labels[:]
+    self.__train_cpu_lock.release()
+
+    return labels
+
+  def get_test_names(self):
+    """
+    Returns:
+      A list of the image names of the loaded images for the test set. """
+    self.__test_cpu_lock.acquire()
+    names = self.__testing_names[:]
+    self.__test_cpu_lock.release()
+
+    return names
+
+  def get_train_names(self):
+    """
+    Returns:
+      A list of the image names of the loaded images for the train set. """
+    self.__train_cpu_lock.acquire()
+    names = self.__training_names[:]
+    self.__train_cpu_lock.release()
+
+    return names
 
   def get_train_set_size():
     """
@@ -486,7 +530,8 @@ class DataManagerLoader(Loader):
     Args:
       filename: The name of the file to write the saved data to. """
     file_object = open(filename, "wb")
-    pickle.dump(self.__labels, file_object)
+    pickle.dump((self.__labels, self.__reverse_labels, self.__current_label),
+                file_object)
     file_object.close()
 
   def load(self, filename):
@@ -494,8 +539,31 @@ class DataManagerLoader(Loader):
     Args:
       filename: The name of the file to load from. """
     file_object = file(filename, "rb")
-    self.__labels = pickle.load(file_object)
+    self.__labels, self.__reverse_labels, self.__current_label = \
+        pickle.load(file_object)
+    logger.debug("Starting at label %d." % (self.__current_label))
+
     file_object.close()
+
+  def convert_ints_to_labels(self, output):
+    """ Converts the output from a network tester or predictor to the actual
+    corresponding labels.
+    Args:
+      output: A list of numbers to convert.
+    Returns:
+      A list of the actual labels. """
+    labels = []
+
+    self.__train_cpu_lock.acquire()
+    self.__test_cpu_lock.acquire()
+
+    for number in output:
+      labels.append(self.__reverse_labels[number])
+
+    self.__train_cpu_lock.release()
+    self.__test_cpu_lock.release()
+
+    return labels
 
 class SequentialDataManagerLoader(DataManagerLoader):
   """ Same as DataManagerLoader, but loads sequential batches instead of random
@@ -514,7 +582,6 @@ class SequentialDataManagerLoader(DataManagerLoader):
     Returns:
       The loaded images and labels. """
     return self._image_getter.get_sequential_test_batch()
-
 
 class ImagenetLoader(DataManagerLoader):
   """ Loads data from imagenet. """

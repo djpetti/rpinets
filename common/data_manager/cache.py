@@ -68,7 +68,7 @@ class DiskCache(Cache):
     # Maps label names to the names of images in them. Each value is itself a
     # dictionary that maps the image name to its offset in the cache file.
     self.__labels = {}
-    # Maps offsets in the cache file to WNIDs of images that are there.
+    # Maps offsets in the cache file to IDs of images that are there.
     self.__offsets = {}
     # The current location of free space within the cache file.
     self.__free_start = 0
@@ -533,6 +533,8 @@ class MemoryBuffer(Cache):
     self.__image_indices = {}
     # Keeps a list of image labels in the order that they were added.
     self.__labels = [None] * self.__batch_size * self.__num_batches
+    # Keeps a list of image names in the order they were added.
+    self.__names = [None] * self.__batch_size * self.__num_batches
 
     # Keeps track of the start of the last batch that we got.
     self.__batch_index = 0
@@ -605,6 +607,7 @@ class MemoryBuffer(Cache):
     self.__image_indices[unique_identifier] = self.__fill_index
 
     self.__labels[self.__label_fill_index] = label
+    self.__names[self.__label_fill_index] = name
 
     self.__increment_fill_index()
 
@@ -629,6 +632,7 @@ class MemoryBuffer(Cache):
     self.__image_indices[unique_identifier] = patch_locations
 
     self.__labels[self.__label_fill_index] = label
+    self.__names[self.__label_fill_index] = name
 
     self.__increment_fill_index()
 
@@ -640,7 +644,7 @@ class MemoryBuffer(Cache):
       name: The name of the image.
     Returns:
       The image data. """
-    unique_identifier = utils.make_wnid_id(label, name)
+    unique_identifier = utils.make_img_id(label, name)
     index = self.__image_indices[unique_identifier]
 
     if type(index) is list:
@@ -662,7 +666,7 @@ class MemoryBuffer(Cache):
     it advances batch_index, so that this portion of memory can be overwritten
     again.
     Returns:
-      The batch data, and label data. """
+      The batch data, and label data, and the image name data. """
     end_index = self.__batch_index + self.__batch_size * self.__num_patches
     logger.debug("Getting batch %d:%d." % (self.__batch_index, end_index))
     batch = self.__storage[self.__batch_index:end_index]
@@ -672,10 +676,11 @@ class MemoryBuffer(Cache):
     logger.debug("Getting batch labels: %d:%d." % (self.__label_batch_index,
                                                    end_labels))
     labels = self.__labels[self.__label_batch_index:end_labels]
+    names = self.__names[self.__label_batch_index:end_labels]
 
     self.__increment_batch_index()
 
-    return batch, labels
+    return batch, labels, names
 
   def clear(self):
     """ Deletes everything in the cache. """

@@ -80,8 +80,9 @@ class _DatasetBase(object):
   def get_random_batch(self):
     """ Loads a random batch of images from the whole dataset.
     Returns:
-      The array of loaded images, and a list of the synsets each image belongs
-      to, as well as a list of all images that failed to download. """
+      The array of loaded images, a list of the label each image has, and a list
+      of the image IDs for each image, as well as a list of all images that
+      failed to download. """
     logger.info("Getting batch.")
 
     # Keeps track of images that were already used this batch.
