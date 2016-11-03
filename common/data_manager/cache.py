@@ -6,6 +6,7 @@ import logging
 import operator
 import os
 import cPickle as pickle
+import sys
 import time
 
 import cv2
@@ -443,6 +444,38 @@ class DiskCache(Cache):
       raw_data = raw_data[size:]
 
     return images
+
+  def get_first_in_cache(self, use_only=None):
+    """ Gets the image id of the first image in the cache.
+    Args:
+      use_only: If specified, it will look for the earliest out of that subset
+      of images.
+    Returns:
+      The image ID of the first image in the cache. """
+    if not use_only:
+      # Get the first image in the cache, period.
+      if 0 not in self.__offsets:
+        if not self.__free_start and self.__free_end:
+          # A special case is when we have a free segment starting at zero. This
+          # is the only case in which this situation is valid.
+          return self.__offsets[self.__free_end]
+        raise ValueError("Expected image at offset 0, but found none. Try \
+                          repairing cache.")
+
+      return self.__offsets[0]
+
+    # Otherwise, we'll have to go through everything in use_only.
+    min_offset = sys.maxint
+    first_image = None
+    for img_id in use_only:
+      label, name = utils.split_img_id(img_id)
+      offset, _ = self.__labels[label][name]
+
+      if offset < min_offset:
+        min_offset = offset
+        first_image = img_id
+
+    return first_image
 
   def get_cache_size(self):
     """

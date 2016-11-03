@@ -271,3 +271,22 @@ class DiskCacheTest(unittest.TestCase):
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))
     self.assertNotIn("synset1_image0", loaded)
+
+  def test_get_first(self):
+    """ Tests that get_first_in_cache works properly. """
+    # Store all the images.
+    use_only = set()
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      use_only.add(utils.make_img_id("synset1", name))
+      self.__cache.add(image, name, "synset1")
+    # Remove the first image from use_only.
+    use_only.remove(utils.make_img_id("synset1", "image0"))
+
+    # Get the first one.
+    first_image = self.__cache.get_first_in_cache()
+    self.assertEqual(utils.make_img_id("synset1", "image0"), first_image)
+
+    # Now, give it a use_only argument.
+    first_image = self.__cache.get_first_in_cache(use_only=use_only)
+    self.assertEqual(utils.make_img_id("synset1", "image1"), first_image)
