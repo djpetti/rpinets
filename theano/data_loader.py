@@ -91,17 +91,17 @@ class Loader(object):
     """ Returns: The validation set. """
     return self.__cast_dataset(self._shared_valid_set)
 
-  def get_train_set_size(self):
-    """ Returns: The size of the training set. """
-    return self._train_set_size
+  def get_train_batch_size(self):
+    """ Returns: The size of the training batches. """
+    return self._train_batch_size
 
-  def get_test_set_size(self):
-    """ Returns: The size of the testing set. """
-    return self._test_set_size
+  def get_test_batch_size(self):
+    """ Returns: The size of the testing batches. """
+    return self._test_batch_size
 
-  def get_valid_set_size(self):
-    """ Returns: The size of the validation set. """
-    return self._valid_set_size
+  def get_valid_batch_size(self):
+    """ Returns: The size of the validation batches. """
+    return self._valid_batch_size
 
 
 class Mnist(Loader):
@@ -204,13 +204,13 @@ class DataManagerLoader(Loader):
     self.__training_labels = None
     self.__testing_labels = None
 
-    self._train_set_size = self._buffer_size
+    self._train_batch_size = self._buffer_size
     if not self._patch_shape:
       # No patches.
-      self._test_set_size = self._buffer_size
+      self._test_batch_size = self._buffer_size
     else:
       # We have to account for all the patches.
-      self._test_set_size = self._buffer_size * 10
+      self._test_batch_size = self._buffer_size * 10
 
     # This is how we'll actually get images.
     self._init_image_getter()
@@ -300,6 +300,20 @@ class DataManagerLoader(Loader):
                                  patch_shape=self._patch_shape,
                                  patch_flip=self._patch_flip)
 
+  def _load_raw_training_batch(self):
+    """ Loads raw image and label data from somewhere.
+    This can be overriden by subclasses to add specific functionality.
+    Returns:
+      The loaded images and labels. """
+    return self._image_getter.get_random_train_batch()
+
+  def _load_raw_testing_batch(self):
+    """ Loads raw image and label data from somewhere.
+    This can be overriden by subclasses to add specific functionality.
+    Returns:
+      The loaded images and labels. """
+    return self._image_getter.get_random_test_batch()
+
   def __convert_labels_to_ints(self, labels):
     """ Converts a set of labels from the default label names to integers, so
     that they can actually be used in the network.
@@ -321,8 +335,7 @@ class DataManagerLoader(Loader):
 
   def __load_next_training_batch(self):
     """ Loads the next batch of training data from the Imagenet backend. """
-    self.__training_buffer, labels = \
-        self._image_getter.get_random_train_batch()
+    self.__training_buffer, labels = self._load_raw_training_batch()
     logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
     logger.debug("Training mean: %f" % mean)
@@ -342,8 +355,7 @@ class DataManagerLoader(Loader):
 
   def __load_next_testing_batch(self):
     """ Loads the next batch of testing data from the Imagenet backend. """
-    self.__testing_buffer, labels = \
-        self._image_getter.get_random_test_batch()
+    self.__testing_buffer, labels = self._load_raw_testing_batch()
     logger.debug("Got raw labels: %s" % (labels))
     mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
     logger.debug("Testing mean: %f" % mean)
@@ -457,6 +469,18 @@ class DataManagerLoader(Loader):
     """ Gets a non-shared version of the test set, useful for AlexNet. """
     return self.__testing_labels
 
+  def get_train_set_size():
+    """
+    Returns:
+      The total number of images in the training dataset. """
+    return self._image_getter.get_train_set_size()
+
+  def get_test_set_size():
+    """
+    Returns:
+      The total number of images in the testing dataset. """
+    return self._image_getter.get_test_set_size()
+
   def save(self, filename):
     """ Allows the saving of label associations for later use.
     Args:
@@ -472,6 +496,24 @@ class DataManagerLoader(Loader):
     file_object = file(filename, "rb")
     self.__labels = pickle.load(file_object)
     file_object.close()
+
+class SequentialDataManagerLoader(DataManagerLoader):
+  """ Same as DataManagerLoader, but loads sequential batches instead of random
+  batches. This is useful for doing things like performing validation. """
+
+  def _load_raw_training_batch(self):
+    """ Loads raw image and label data from somewhere.
+    This can be overriden by subclasses to add specific functionality.
+    Returns:
+      The loaded images and labels. """
+    return self._image_getter.get_sequential_train_batch()
+
+  def _load_raw_testing_batch(self):
+    """ Loads raw image and label data from somewhere.
+    This can be overriden by subclasses to add specific functionality.
+    Returns:
+      The loaded images and labels. """
+    return self._image_getter.get_sequential_test_batch()
 
 
 class ImagenetLoader(DataManagerLoader):

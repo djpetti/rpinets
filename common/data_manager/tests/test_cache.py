@@ -190,8 +190,12 @@ class DiskCacheTest(unittest.TestCase):
       self.__cache.add(image, name, "synset1")
 
     # Try to read everything back from the cache.
-    loaded = self.__cache.get_sequential("synset1", "image0",
-                                         len(self.__images))
+    loaded, new = self.__cache.get_sequential("synset1", "image0",
+                                              len(self.__images))
+
+    # It should have read all the way to the end, so it shouldn't be providing a
+    # next image to load.
+    self.assertEqual(None, new)
 
     # Check that it found everything it should.
     for i, image in enumerate(self.__images):
@@ -213,8 +217,8 @@ class DiskCacheTest(unittest.TestCase):
     self.__cache.evict_next_image()
 
     # Try to read everything remaining back from the cache.
-    loaded = self.__cache.get_sequential("synset1", "image1",
-                                         len(self.__images) - 1)
+    loaded, _ = self.__cache.get_sequential("synset1", "image1",
+                                            len(self.__images) - 1)
 
     # Check that it found everything it should.
     for i, image in enumerate(self.__images[1:]):
@@ -233,8 +237,10 @@ class DiskCacheTest(unittest.TestCase):
       self.__cache.add(image, name, "synset1")
 
     # Try to read everything back from the cache, and more.
-    loaded = self.__cache.get_sequential("synset1", "image0",
-                                         len(self.__images) + 1)
+    loaded, new = self.__cache.get_sequential("synset1", "image0",
+                                              len(self.__images) + 1)
+    # It ended, so it shouldn't be providing any next image to load.
+    self.assertEqual(None, new)
 
     # Check that it found everything it should.
     for i, image in enumerate(self.__images):
@@ -259,9 +265,9 @@ class DiskCacheTest(unittest.TestCase):
     # Remove the first image from use_only.
     use_only.remove(utils.make_img_id("synset1", "image0"))
     # Try to read everything back from the cache.
-    loaded = self.__cache.get_sequential("synset1", "image0",
-                                         len(self.__images),
-                                         use_only=use_only)
+    loaded, _ = self.__cache.get_sequential("synset1", "image0",
+                                            len(self.__images),
+                                            use_only=use_only)
 
     # Check that it found everything except the first one.
     for i, image in enumerate(self.__images[1:]):
@@ -271,6 +277,26 @@ class DiskCacheTest(unittest.TestCase):
       got_image = loaded[img_id]
       self.assertTrue(np.array_equal(image, got_image))
     self.assertNotIn("synset1_image0", loaded)
+
+  def test_sequential_next_image(self):
+    """ Tests that the next image return value from get_sequential works
+    properly. """
+    # Store all the images.
+    use_only = set()
+    for i, image in enumerate(self.__images):
+      name = "image%d" % (i)
+      use_only.add(utils.make_img_id("synset1", name))
+      self.__cache.add(image, name, "synset1")
+
+    # Try to read everything back from the cache except the last one.
+    _, next_start = self.__cache.get_sequential("synset1", "image0",
+                                                len(self.__images) - 1,
+                                                use_only=use_only)
+
+    # It should be recommending that we start the next sequential load at the
+    # last image.
+    last_name = "image%d" % (len(self.__images) - 1)
+    self.assertEqual(utils.make_img_id("synset1", last_name), next_start)
 
   def test_get_first(self):
     """ Tests that get_first_in_cache works properly. """

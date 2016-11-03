@@ -116,6 +116,30 @@ class ImageGetter(object):
 
     return images
 
+  def get_sequential_train_batch(self):
+    """ Gets a sequential training batch.
+    Returns:
+      The array of loaded images, and the list of labels. """
+    return self._train_set.get_sequential_batch()
+
+  def get_sequential_test_batch(self):
+    """ Gets a sequential testing batch.
+    Returns:
+      The array of loaded images, and the list of labels. """
+    return self._test_set.get_sequential_batch()
+
+  def get_train_set_size(self):
+    """
+    Returns:
+      The number of images in the training dataset. """
+    return len(self._train_set.get_images())
+
+  def get_test_set_size(self):
+    """
+    Returns:
+      The number of images in the testing dataset. """
+    return len(self._test_set.get_images())
+
   def save_datasets(self):
     """ Saves the datasets to the disk. """
     file_prefix = self._load_datasets_from

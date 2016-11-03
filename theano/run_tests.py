@@ -95,9 +95,9 @@ def run_mnist_test():
     train_batch_index += 1
 
     # Wrap indices.
-    if (train_batch_index + 1) * batch_size >= data.get_train_set_size():
+    if (train_batch_index + 1) * batch_size >= data.get_train_batch_size():
       train_batch_index = 0
-    if (test_batch_index + 1) * batch_size >= data.get_test_set_size():
+    if (test_batch_index + 1) * batch_size >= data.get_test_batch_size():
       test_batch_index = 0
 
   elapsed = time.time() - start_time
@@ -176,18 +176,18 @@ def run_imagenet_test():
 
   while iterations < 150000:
     logger.debug("Train index, size: %d, %d" % (train_batch_index,
-                                                data.get_train_set_size()))
+                                                data.get_train_batch_size()))
     logger.debug("Test index, size: %d, %d" % (test_batch_index,
-                                               data.get_test_set_size()))
+                                               data.get_test_batch_size()))
 
     # Swap in new data if we need to.
-    if (train_batch_index + 1) * batch_size > data.get_train_set_size():
+    if (train_batch_index + 1) * batch_size > data.get_train_batch_size():
       train_batch_index = 0
       logger.info("Getting train set.")
       train = data.get_train_set()
       logger.info("Got train set.")
     # Swap in new data if we need to.
-    test_set_one_patch = data.get_test_set_size() / 10
+    test_set_one_patch = data.get_test_batch_size() / 10
     if (test_batch_index + 1) * batch_size > test_set_one_patch:
       test_batch_index = 0
       logger.info("Getting test set.")

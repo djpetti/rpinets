@@ -369,7 +369,9 @@ class DiskCache(Cache):
       A dictionary mapping unique IDs of loaded images to the actual image data.
       It may not contain all the images requested, if there is not sufficient
       data in the cache. It will also return None if the first image is not in
-      the cache. """
+      the cache. Furthermore, it returns the image ID to start at if loading the
+      sequential batch directly after this one. This will be None if it hits the
+      end of the cache. """
     if not self.is_in_cache(start_label, start_name):
       return None
 
@@ -389,7 +391,7 @@ class DiskCache(Cache):
     to_load = []
 
     num_rejected = 0
-    while (num_loaded < number_of_images and end_offset < total_size):
+    while (num_loaded < number_of_images + 1 and end_offset < total_size):
       # Find the next image.
       if end_offset not in self.__offsets:
         raise RuntimeError("Unexpected free space in cache. Please repair the \
@@ -425,6 +427,12 @@ class DiskCache(Cache):
           logger.debug("Got too many bad images, giving up.")
           break
 
+    next_image = None
+    if num_loaded > number_of_images:
+      # We know the next image to start at.
+      next_image, _ = to_load.pop()
+      logger.debug("First image of next sequential batch: %s" % (next_image))
+
     # Read that part of the file.
     logger.debug("Reading file from %d to %d." % (start_offset, end_offset))
     self.__data_file.seek(start_offset)
@@ -443,7 +451,7 @@ class DiskCache(Cache):
 
       raw_data = raw_data[size:]
 
-    return images
+    return (images, next_image)
 
   def get_first_in_cache(self, use_only=None):
     """ Gets the image id of the first image in the cache.

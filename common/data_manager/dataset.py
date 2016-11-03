@@ -55,6 +55,11 @@ class _DatasetBase(object):
     # The fraction of the last batch that it was able to find in the cache.
     self.__cache_hit_rate = 0.0
 
+    # The image ID of the first image in the cache.
+    self.__first_cached_image = None
+    # The image to start at when loading the next sequential batch.
+    self.__sequential_start_image = None
+
     logger.info("Have %d total images in database." % (len(self.__images)))
 
   def _pick_random_image(self):
@@ -144,6 +149,54 @@ class _DatasetBase(object):
 
     return self._mem_buffer.get_batch(), to_remove
 
+  def get_sequential_batch(self):
+    """ Loads images sequentially from the cache instead of picking a random
+    batch. This is probably not something you want to do unless you have a very
+    large fraction of your dataset in cache to begin with.
+    Returns:
+      The array of loaded images, and a list of all the image labels. """
+    logger.info("Getting sequential batch.")
+
+    if not self.__first_cached_image:
+      # Find the first image in the cache.
+      self.__first_cached_image = \
+          self._cache.get_first_in_cache(use_only=self.__images)
+      logger.debug("First image in cache: %s" % (self.__first_cached_image))
+
+      self.__sequential_start_image = self.__first_cached_image
+
+    # Load the next sequential batch.
+    loaded_nothing = False
+    while self._mem_buffer.space_used() < self._batch_size:
+      start_label, start_name = \
+          utils.split_img_id(self.__sequential_start_image)
+
+      # Try loading the images.
+      need_images = self._mem_buffer.space_remaining()
+      loaded, next_start = self._get_cached_images(start_label, start_name,
+                                                   need_images,
+                                                   force_sequential=True)
+      if not next_start:
+        # We didn't get any images, which means we reached the end of the cache.
+        # Go back to the beginning.
+        logger.debug("Reached end of cache.")
+        self.__sequential_start_image = self.__first_cached_image
+      else:
+        # Just start at the next batch.
+        logger.debug("New start image: %s" % (next_start))
+        self.__sequential_start_image = next_start
+
+      if not loaded:
+        if loaded_nothing:
+          # This is the second cycle in a row where we've gotten nothing, so
+          # something is clearly wrong.
+          raise RuntimeError("Not enough images to load from cache?")
+        loaded_nothing = True
+      else:
+        loaded_nothing = False
+
+    return self._mem_buffer.get_batch()
+
   def _load_random_images(self, max_images):
     """ Loads a random image from either the cache or the internet. If loading
     from the cache, it will also try to speed up the process by loading "bonus"
@@ -158,7 +211,8 @@ class _DatasetBase(object):
 
     if self._cache.is_in_cache(synset, number):
       # It's in the cache, so load it and any additional sequential images.
-      return self._get_cached_images(synset, number, max_images)
+      loaded, _ = self._get_cached_images(synset, number, max_images)
+      return loaded
 
     # We have to download the image instead.
     if not self._download_manager.download_new(synset, number, url):
@@ -168,30 +222,38 @@ class _DatasetBase(object):
 
     return 0
 
-  def _get_cached_images(self, start_label, start_name, max_images):
+  def _get_cached_images(self, start_label, start_name, max_images,
+                         force_sequential=False):
     """ Bulk-loads a bunch of image data from the cache, pre-processes them, and
-    puts the in the memory buffer.
+    puts them in the memory buffer.
     Args:
       start_label: The label of the image to start loading from.
       start_name: The name of the image to start loading from.
       max_images: The maximum number of images we can load.
+      force_sequential: Ignore heuristics and force sequential loading all the
+                        time.
     Returns:
-      1 if it loaded something from the cache, 0 if it didn't. """
+      1 if it loaded something from the cache, 0 if it didn't. It also returns
+      where to start loading the next sequential batch, if one can be loaded. """
     # Use a simple heuristic to figure out how many images to try loading
     # sequentially.
-    load_images = self.__cache_hit_rate * max_images
-    load_images = int(load_images)
-    load_images = max(load_images, 1)
+    if not force_sequential:
+      load_images = self.__cache_hit_rate * max_images
+      load_images = int(load_images)
+      load_images = max(load_images, 1)
+    else:
+      load_images = max_images
     logger.debug("Attempting load of %d sequential images from cache..." % \
                  (load_images))
 
-    loaded = self._cache.get_sequential(start_label, start_name, load_images,
-                                        use_only=self.__images)
+    loaded, next_start = self._cache.get_sequential(start_label, start_name,
+                                                    load_images,
+                                                    use_only=self.__images)
 
     for img_id, image in loaded.iteritems():
       self._buffer_image(image, img_id)
 
-    return len(loaded) != 0
+    return (len(loaded) != 0, next_start)
 
   def _buffer_image(self, image, img_id):
     """ Pre-process a loaded image and store it in the memory buffer.
