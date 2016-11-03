@@ -96,7 +96,7 @@ class AlexNet(LeNetClassifier):
 
     return top_one_accuracy, top_five_accuracy
 
-  def test(self, batch_index, expected_outputs):
+  def test(self, batch_index, expected_outputs, patches=10):
     """ A special tester that averages the softmax accross multiple
     translations, as described in the AlexNet paper. It is assumed that
     different translations of the same batch are stored as sequential batches in
@@ -104,13 +104,14 @@ class AlexNet(LeNetClassifier):
     Args:
       batch_index: The index of the first batch to use.
       expected_outputs: A non-symbolic copy of our expected outputs.
+      patches: The number of patches to average accross.
     Returns:
       The top-one and top-five accuracy of the network. """
     # Since the tester does everything in terms of batch size, we need to
     # convert patch_separation to batch sized units.
     separation = self._patch_separation / self._batch_size
     # Run for every patch.
-    for i in range(0, 10 * separation, separation):
+    for i in range(0, patches * separation, separation):
       self.__softmaxes.append(self._tester(batch_index + i))
 
     # Find the mean distribution.
