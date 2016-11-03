@@ -96,6 +96,27 @@ class AlexNet(LeNetClassifier):
 
     return top_one_accuracy, top_five_accuracy
 
+  def __get_mean_softmax(self, batch_index, patches=10):
+    """ Computes and averages the softmax over a set of batches.
+    Args:
+      batch_index: The index of the first batch to use.
+      patches: The number of patches to average accross.
+    Returns:
+      The averaged softmax distribution. """
+    # Since the tester does everything in terms of batch size, we need to
+    # convert patch_separation to batch sized units.
+    separation = self._patch_separation / self._batch_size
+    softmaxes = []
+    # Run for every patch.
+    for i in range(0, patches * separation, separation):
+      softmaxes.append(self._tester(batch_index + i))
+
+    # Find the mean distribution.
+    softmaxes = np.asarray(softmaxes)
+    mean = np.mean(softmaxes, axis=0)
+
+    return mean
+
   def test(self, batch_index, expected_outputs, patches=10):
     """ A special tester that averages the softmax accross multiple
     translations, as described in the AlexNet paper. It is assumed that
@@ -107,20 +128,22 @@ class AlexNet(LeNetClassifier):
       patches: The number of patches to average accross.
     Returns:
       The top-one and top-five accuracy of the network. """
-    # Since the tester does everything in terms of batch size, we need to
-    # convert patch_separation to batch sized units.
-    separation = self._patch_separation / self._batch_size
-    # Run for every patch.
-    for i in range(0, patches * separation, separation):
-      self.__softmaxes.append(self._tester(batch_index + i))
-
-    # Find the mean distribution.
-    softmaxes = np.asarray(self.__softmaxes)
-    mean = np.mean(softmaxes, axis=0)
-
-    self.__softmaxes = []
-
+    mean = self.__get_mean_softmax(batch_index, patches=patches)
     return self.__accuracy_from_softmax(mean, expected_outputs)
+
+  def predict_patched(self, batch_index, patches=10):
+    """ Works like a standard predictor, except that it computes the predictions
+    from a softmax distribution averaged accross a number of patches.
+    Args:
+      batch_index: The index of the first batch to use.
+      patches: The number of patches to average accross.
+    Returns:
+      The predicted labels from the network. """
+    mean = self.__get_mean_softmax(batch_index, patches=patches)
+
+    sort = np.argsort(mean, axis=1)
+    top_one = sort[:, -1:]
+    return np.transpose(top_one)
 
   def test_patchless(self, batch_index, expected_outputs):
     """ A simple tester that works the same as the superclass version, with no
