@@ -513,13 +513,13 @@ class DataManagerLoader(Loader):
 
     return names
 
-  def get_train_set_size():
+  def get_train_set_size(self):
     """
     Returns:
       The total number of images in the training dataset. """
     return self._image_getter.get_train_set_size()
 
-  def get_test_set_size():
+  def get_test_set_size(self):
     """
     Returns:
       The total number of images in the testing dataset. """

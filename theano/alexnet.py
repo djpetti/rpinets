@@ -143,7 +143,7 @@ class AlexNet(LeNetClassifier):
 
     sort = np.argsort(mean, axis=1)
     top_one = sort[:, -1:]
-    return np.transpose(top_one)
+    return np.transpose(top_one)[0]
 
   def test_patchless(self, batch_index, expected_outputs):
     """ A simple tester that works the same as the superclass version, with no
