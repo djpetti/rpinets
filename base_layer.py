@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # This keeps track of the backend we are using.
 _backend = None
 _backend_name = ""
+_utils = None
 
 
 def set_backend(backend):
@@ -20,6 +21,7 @@ def set_backend(backend):
     backend: Either "tensorflow" or "theano". """
   global _backend
   global _backend_name
+  global _utils
 
   logger.info("Using backend '%s'." % (backend))
 
@@ -31,6 +33,7 @@ def set_backend(backend):
 
     # Local theano modules.
     from .theano_layer import utils
+    _utils = utils
 
     _backend = theano
 
@@ -96,8 +99,6 @@ class Runnable(object):
   # The session that will be used with Tensorflow for actually running things.
   # There is no need to have any more than one of these.
   _session = None
-  # Keeps track of a global step count.
-  _global_step = None
 
   def __init__(self, inputs, outputs, givens):
     """
@@ -107,15 +108,6 @@ class Runnable(object):
       givens: A dictionary of tensors and their values. These should be tensors
       whose symbolic values will not change for the lifetime of the runnable.
     """
-    # Create a global step variable if we need to.
-    if not Runnable._global_step:
-      logger.debug("Starting global step at 0.")
-      Runnable._global_step = variable(0, name="global_step")
-    # Symbolic next global step value.
-    next_step = Runnable._global_step + 1
-    # Add updated global step to the outputs.
-    outputs.append(next_step)
-
     # graph_outputs is a list of the outputs where everything been converted
     # to the native backend version.
     graph_outputs = []
@@ -157,8 +149,7 @@ class Runnable(object):
                     specified in the constructor.
     Returns:
       The computed output values, in the order that said outputs were specified
-      in the contructor. The last output will always be the global step
-      counter, which increments every time run is called. """
+      in the contructor. """
     if _backend_name == "theano":
       # Just run the function.
       return self.__function(*input_values)
@@ -214,7 +205,7 @@ class GradientDescentOptimizer(_Optimizer):
       weight_decay: The weight decay to use.
       params: The parameters to update. With Tensorflow, this is technically not
               needed, but it doesn't hurt to provide it anyway. """
-    super(_GradientDescentOptimizer, self).__init__(*args, **kwargs)
+    super(GradientDescentOptimizer, self).__init__(*args, **kwargs)
 
     momentum = kwargs.get("momentum", 0)
     weight_decay = kwargs.get("weight_decay", 0)
@@ -225,9 +216,9 @@ class GradientDescentOptimizer(_Optimizer):
         raise ValueError("Need 'params' argument with Theano.")
 
       # Compute the updates to use.
-      self._updates = utils.momentum_sgd(self._to_optimize, params,
-                                         learning_rate, momentum,
-                                         weight_decay)
+      self._updates = _utils.momentum_sgd(self._to_optimize, params,
+                                          learning_rate, momentum,
+                                          weight_decay)
 
     elif _backend_name == "tensorflow":
       # Use the built-in optimizer.

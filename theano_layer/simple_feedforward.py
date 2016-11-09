@@ -543,7 +543,7 @@ class FeedforwardNetwork(object):
     """ Runs an actual prediction step for the network.
     Returns:
       The prediction operation. """
-    return self._prediction_operation
+    return self._prediction_operation.run
 
   @property
   def train(self):
@@ -553,14 +553,14 @@ class FeedforwardNetwork(object):
     if not self._optimizer:
       raise RuntimeError("No trainer is configured!")
 
-    return self._optimizer
+    return self._optimizer.run
 
   @property
   def test(self):
     """ Runs a test on a single batch for the network, and returns the accuracy.
     Returns:
       The testing operation. """
-    return self._tester
+    return self._tester.run
 
   def save(self, filename):
     """ Saves the network to a file.
