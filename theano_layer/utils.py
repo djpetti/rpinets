@@ -47,7 +47,7 @@ def momentum_sgd(cost, params, lr, momentum, weight_decay):
 
     updates.append((p, p + v_next))
 
-  return updates, g
+  return updates
 
 def local_response_normalization(data, depth_radius, bias, alpha, beta):
   """ Local response normalization, as described in the AlexNet paper.

@@ -3,7 +3,7 @@
 
 # This forks processes, so we want to import it as soon as possible, when there
 # is as little memory as possible being used.
-from common.data_manager import cache, image_getter, imagenet
+from ..data_manager import cache, image_getter, imagenet
 
 import cPickle as pickle
 import gzip

@@ -12,6 +12,8 @@ import theano.tensor as TT
 
 import numpy as np
 
+from .. import base_layer
+
 import utils
 
 
@@ -88,7 +90,7 @@ class FeedforwardNetwork(object):
     self._global_step = theano.shared(0)
 
     self._srng = TT.shared_randomstreams.RandomStreams()
-    self._training = TT.lscalar("training")
+    self._training = base_layer.placeholder("int8", (), name="training")
     # Keeps track of whether _training actually gets used, because Theano is
     # annoying about initializing unused variables.
     self._used_training = False
@@ -111,7 +113,7 @@ class FeedforwardNetwork(object):
                               size=weight_shape)
       weight_values = np.asarray(dist, dtype=theano.config.floatX)
 
-    return theano.shared(weight_values)
+    return base_layer.variable(weight_values)
 
   def __initialize_weights(self, layers, outputs):
     """ Initializes tensors containing the weights and biases for each layer.
@@ -139,7 +141,7 @@ class FeedforwardNetwork(object):
       # Initialize biases.
       bias_values = np.full((fan_out,), layers[i].start_bias,
                             dtype=theano.config.floatX)
-      bias = theano.shared(bias_values)
+      bias = base_layer.variable(bias_values)
       self.__our_biases.append(bias)
 
     # Include outputs also.
@@ -147,7 +149,7 @@ class FeedforwardNetwork(object):
     self.__our_weights.append(weights)
     bias_values = np.full((outputs,), layers[i].start_bias,
                           dtype=theano.config.floatX)
-    self.__our_biases.append(theano.shared(bias_values))
+    self.__our_biases.append(base_layer.variable(bias_values))
 
     self.__weight_shapes.append((fan_out, outputs))
 
@@ -249,8 +251,10 @@ class FeedforwardNetwork(object):
     self.__initialize_weights(self._layers, outputs)
 
     # Inputs and outputs.
-    self._inputs = TT.fmatrix("inputs")
-    self._expected_outputs = TT.ivector("expected_outputs")
+    self._inputs = base_layer.placeholder("float32", (None, None),
+                                          name="inputs")
+    self._expected_outputs = base_layer.placeholder("int32", (None,),
+                                                    name="expected_outputs")
 
     # Build actual layer model.
     self.__add_layers(self._inputs, self._layers)
@@ -260,12 +264,9 @@ class FeedforwardNetwork(object):
         self._softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
 
-    # Does an actual prediction.
-    self._prediction_operation = self._build_predictor(self._test_x,
-                                                       self._batch_size)
-    # Evaluates the network's accuracy on the testing data.
-    self._tester = self._build_tester(self._test_x, self._test_y,
-                                      self._batch_size)
+    # Build functions.
+    self.__rebuild_functions((self._train_x, self._train_y),
+                             (self._test_x, self._test_y))
 
   def __make_givens(self, batch_x, batch_y, index, batch_size, training):
     """ Makes the givens dictionary for a training or testing function.
@@ -365,21 +366,17 @@ class FeedforwardNetwork(object):
       Theano function for training the network. """
     # Compute gradients for all parameters.
     params = self.__make_params(train_layers)
-
-    # Tell it how to update the parameters.
-    updates, grads = utils.momentum_sgd(cost, params, learning_rate, momentum,
-                                        weight_decay)
-    # Update the global step too.
-    updates.append((self._global_step, self._global_step + 1))
-
+    # Create the optimizer.
+    optimizer = base_layer.GradientDescentOptimizer(learning_rate, cost,
+                                                    momentum=momentum,
+                                                    weight_decay=weight_decay,
+                                                    params=params)
     # Index to a minibatch.
-    index = TT.lscalar()
+    index = base_layer.placeholder("int64", (), name="sgd_batch_index")
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
-                                                       self._global_step],
-                              updates=updates,
-                              givens=givens)
+    trainer = base_layer.Runnable([index], [cost, learning_rate], givens)
+
     return trainer
 
   def _build_rmsprop_trainer(self, cost, learning_rate, rho, epsilon, train_x,
@@ -420,7 +417,7 @@ class FeedforwardNetwork(object):
       batch_size: How big our batches are.
     Returns:
       Theano function for testing the network. """
-    index = TT.lscalar()
+    index = base_layer.placeholder("int64", (), name="predictor_index")
     softmax = TT.nnet.softmax(self._layer_stack)
     outputs = TT.argmax(softmax, axis=1)
 
@@ -430,8 +427,7 @@ class FeedforwardNetwork(object):
     if self._used_training:
       givens[self._training] = 0
 
-    predictor = theano.function(inputs=[index], outputs=outputs,
-                                givens=givens)
+    predictor = base_layer.Runnable([index], [outputs], givens)
     return predictor
 
   def _build_tester(self, test_x, test_y, batch_size):
@@ -443,7 +439,7 @@ class FeedforwardNetwork(object):
       batch_size: How big out batches are.
     Returns:
       Theano function for evaluating network accuracy. """
-    index = TT.lscalar()
+    index = base_layer.placeholder("int64", (), name="tester_index")
     softmax = TT.nnet.softmax(self._layer_stack)
     argmax = TT.argmax(softmax, axis=1)
 
@@ -455,6 +451,8 @@ class FeedforwardNetwork(object):
     if self._used_training:
       givens[self._training] = 0
 
+    tester = base_layer.Runnable(inputs=[index], outputs=[accuracy],
+                                 givens=givens)
     tester = theano.function(inputs=[index], outputs=accuracy,
                              givens=givens)
     return tester
