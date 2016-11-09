@@ -89,3 +89,42 @@ def variable(initial_value, name=None):
     return _backend.shared(initial_value, name=name)
   elif _backend_name == "tensorflow":
     return _backend.Variable(initial_value, name=name)
+
+
+def cast(value, dtype, name=None):
+  """ Converts a value to the specified type, symbolically.
+  Args:
+    value: The value to convert.
+    dtype: The type to convert the value into.
+    name: Optionally, the name of the casted value. This is ignored for
+          Theano.
+  Returns:
+    The converted value. """
+  if _backend_name == "theano":
+    return _backend.tensor.cast(value, dtype)
+  elif _backend_name == "tensorflow":
+    return _backend.cast(value, dtype, name=name)
+
+def square(value, name=None):
+  """ Squares a value.
+  Args:
+    value: The value to square.
+    name: Optionally, the name of the squared value. This is ignored for Theano.
+  Returns:
+    The squared value. """
+  if _backend_name == "theano":
+    return _backend.tensor.sqr(value)
+  elif _backend_name == "tensorflow":
+    return _backend.square(value, name=name)
+
+def sqrt(value, name=None):
+  """ Takes the square root of a value.
+  Args:
+    value: The value to take the square root of.
+    name: Optionally, the name of the new value. This is ignored for Theano.
+  Returns:
+    The square root of value. """
+  if _backend_name == "theano":
+    return _backend.tensor.sqrt(value)
+  elif _backend_name == "tensorflow":
+    return _backend.sqrt(value, name=name)

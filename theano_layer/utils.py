@@ -1,9 +1,10 @@
 """ Utility functions that don't really belong in a specific class. """
 
-import theano
 import theano.tensor as TT
 
 import numpy as np
+
+from ..base_layer import primitives
 
 
 def rmsprop(cost, params, lr, rho, epsilon):
@@ -20,9 +21,9 @@ def rmsprop(cost, params, lr, rho, epsilon):
   grads = TT.grad(cost=cost, wrt=params)
   updates = []
   for p, g in zip(params, grads):
-    acc = theano.shared(p.get_value() * 0.)
+    acc = primitives.variable(p.get_value() * 0.)
     acc_new = rho * acc + (1 - rho) * g ** 2
-    gradient_scaling = TT.sqrt(acc_new + epsilon)
+    gradient_scaling = primitives.sqrt(acc_new + epsilon)
     g = g / gradient_scaling
     updates.append((acc, acc_new))
     updates.append((p, p - lr * g))
@@ -41,7 +42,7 @@ def momentum_sgd(cost, params, lr, momentum, weight_decay):
   grads = TT.grad(cost=cost, wrt=params)
   updates = []
   for p, g in zip(params, grads):
-    v = theano.shared(p.get_value() * 0.)
+    v = primitives.variable(p.get_value() * 0.)
     v_next = momentum * v - weight_decay * lr * p - lr * g
     updates.append((v, v_next))
 
@@ -63,7 +64,7 @@ def local_response_normalization(data, depth_radius, bias, alpha, beta):
     beta: An exponent. """
   half = depth_radius // 2
   # Square input data.
-  square = TT.sqr(data)
+  square = primitives.square(data)
 
   batch, maps, x, y = data.shape
   extra_channels = TT.alloc(0, batch, maps + 2 * half, x, y)
@@ -87,7 +88,7 @@ def exponential_decay(learning_rate, global_step, decay_steps, decay_rate):
   Returns:
     An exponentially decayed learning rate. """
   rate = learning_rate * decay_rate ** (global_step / decay_steps)
-  return TT.cast(rate, theano.config.floatX)
+  return primitives.cast(rate, "float32")
 
 def initialize_xavier(weight_shape):
   """ An implementation of xavier initialization, based on code from here:
@@ -112,5 +113,5 @@ def initialize_xavier(weight_shape):
 
   # Get the weight array.
   weights = np.asarray(np.random.normal(0, stddev, size=weight_shape),
-                       dtype=theano.config.floatX)
+                       dtype="float32")
   return weights
