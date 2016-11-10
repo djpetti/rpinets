@@ -1,5 +1,4 @@
-""" A very simple FCFF NN intended to be used for comparing theano to other
-libraries. """
+""" A very simple FCFF NN. """
 
 
 from six.moves import cPickle as pickle
@@ -86,14 +85,15 @@ class FeedforwardNetwork(object):
     self.__trainer_type = None
     self.__train_params = ()
     self.__train_kw_params = {}
-    # A global step to use for learning rate decays.
-    self._global_step = theano.shared(0)
 
     self._srng = TT.shared_randomstreams.RandomStreams()
     self._training = primitives.placeholder("int8", (), name="training")
     # Keeps track of whether _training actually gets used, because Theano is
     # annoying about initializing unused variables.
     self._used_training = False
+
+    # Keeps track of the number of times we've run the trainer.
+    self._global_step = 0
 
     self._intermediate_activations = []
 
@@ -552,6 +552,8 @@ class FeedforwardNetwork(object):
       The training operation. """
     if not self._optimizer:
       raise RuntimeError("No trainer is configured!")
+
+    self._global_step += 1
 
     return self._optimizer.run
 

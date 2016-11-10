@@ -87,5 +87,3 @@ class Runnable(object):
 
       # Now, we can just run our session.
       return Runnable._session.run(self.__outputs, feed_dict=feed_dict)
-
-
