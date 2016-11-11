@@ -111,7 +111,7 @@ class FeedforwardNetwork(object):
       # Use gaussian initialization.
       dist = np.random.normal(layer.weight_mean, layer.weight_stddev,
                               size=weight_shape)
-      weight_values = np.asarray(dist, dtype=theano.config.floatX)
+      weight_values = np.asarray(dist, dtype="float32")
 
     return primitives.variable(weight_values)
 
@@ -140,7 +140,7 @@ class FeedforwardNetwork(object):
 
       # Initialize biases.
       bias_values = np.full((fan_out,), layers[i].start_bias,
-                            dtype=theano.config.floatX)
+                            dtype="float32")
       bias = primitives.variable(bias_values)
       self.__our_biases.append(bias)
 
@@ -148,7 +148,7 @@ class FeedforwardNetwork(object):
     weights = self._make_initial_weights((fan_out, outputs), layers[i])
     self.__our_weights.append(weights)
     bias_values = np.full((outputs,), layers[i].start_bias,
-                          dtype=theano.config.floatX)
+                          dtype="float32")
     self.__our_biases.append(primitives.variable(bias_values))
 
     self.__weight_shapes.append((fan_out, outputs))

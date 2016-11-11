@@ -1,15 +1,10 @@
 import logging
 
-from .primitives import _backend, _backend_name
+from . import _store_backend as sb
 from . import optimizer
 
 
-# We're going to force the user to manually import primitives and set the
-# backend before importing this module.
-if not _backend:
-  raise RuntimeError( \
-      "Please call primitives.set_backend() before using this module.")
-
+sb.check_backend()
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +26,7 @@ class Runnable(object):
       whose symbolic values will not change for the lifetime of the runnable.
     """
     # graph_outputs is a list of the outputs where everything been converted
-    # to the native backend version.
+    # to the native sb.backend version.
     graph_outputs = []
     for output in outputs:
       if isinstance(output, optimizer._Optimizer):
@@ -40,7 +35,7 @@ class Runnable(object):
       else:
         graph_outputs.append(output)
 
-    if _backend_name == "theano":
+    if sb.backend_name == "theano":
       logger.info("Creating new function...")
 
       # Find any Optimizers and compute updates accordingly.
@@ -49,14 +44,14 @@ class Runnable(object):
         if isinstance(output, optimizer._Optimizer):
           updates.extend(output.get_updates())
 
-      self.__function = _backend.function(inputs=inputs, outputs=graph_outputs,
+      self.__function = sb.backend.function(inputs=inputs, outputs=graph_outputs,
                                           givens=givens, updates=updates)
 
-    elif _backend_name == "tensorflow":
+    elif sb.backend_name == "tensorflow":
       if not Runnable._session:
         # We still need to make a global session.
         logger.info("Creating session...")
-        Runnable._session = _backend.Session()
+        Runnable._session = sb.backend.Session()
 
       # We can't do anything right now, so just save everything.
       self.__inputs = inputs
@@ -72,11 +67,11 @@ class Runnable(object):
     Returns:
       The computed output values, in the order that said outputs were specified
       in the contructor. """
-    if _backend_name == "theano":
+    if sb.backend_name == "theano":
       # Just run the function.
       return self.__function(*input_values)
 
-    elif _backend_name == "tensorflow":
+    elif sb.backend_name == "tensorflow":
       # In Tensorflow, the givens are technically just members of the feed dict
       # that we've specified ahead-of-time.
       feed_dict = self.__givens

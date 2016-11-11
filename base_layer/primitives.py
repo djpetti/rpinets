@@ -4,48 +4,12 @@ a unified API for them. """
 
 import logging
 
+from . import _store_backend as sb
+
+
+sb.check_backend()
 
 logger = logging.getLogger(__name__)
-
-
-# This keeps track of the backend we are using.
-_backend = None
-_backend_name = ""
-_utils = None
-
-def set_backend(backend):
-  """ Sets the backend to use. This must be called at some point for this module
-  to be useful.
-  Args:
-    backend: Either "tensorflow" or "theano". """
-  global _backend
-  global _backend_name
-  global _utils
-
-  logger.info("Using backend '%s'." % (backend))
-
-  if backend == "theano":
-    # Import Theano modules.
-    import theano
-    import theano.tensor
-    import theano.ifelse
-
-    # Local theano modules.
-    from .. theano_layer import utils
-    _utils = utils
-
-    _backend = theano
-
-  elif backend == "tensorflow":
-    # Import tensorflow modules.
-    import tensorflow
-
-    _backend = tensorflow
-
-  else:
-    raise ValueError("Invalid backend choice: '%s'." % (backend))
-
-  _backend_name = backend
 
 
 # The following functions are wrappers for creating native types in any library.
@@ -64,17 +28,17 @@ def placeholder(dtype, shape, name=None):
     name: Optionally gives a name to this placeholder.
   Returns:
     The native placeholder type that was created. """
-  if _backend_name == "theano":
+  if sb.backend_name == "theano":
     # Get the broadcasting right.
     broadcastable = [False] * len(shape)
 
     # Implement as a TensorType.
-    use_type = _backend.tensor.TensorType(dtype, broadcastable)
+    use_type = sb.backend.tensor.TensorType(dtype, broadcastable)
     return use_type(name)
 
-  elif _backend_name == "tensorflow":
+  elif sb.backend_name == "tensorflow":
     # Implement with a placeholder.
-    return _backend.placeholder(dtype, shape=shape, name=name)
+    return sb.backend.placeholder(dtype, shape=shape, name=name)
 
 def variable(initial_value, name=None):
   """ A class representing a shared variable, which can be stored in GPU memory
@@ -85,10 +49,10 @@ def variable(initial_value, name=None):
     name: An optional name for the variable.
   Returns:
     The native variable type that was created. """
-  if _backend_name == "theano":
-    return _backend.shared(initial_value, name=name)
-  elif _backend_name == "tensorflow":
-    return _backend.Variable(initial_value, name=name)
+  if sb.backend_name == "theano":
+    return sb.backend.shared(initial_value, name=name)
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.Variable(initial_value, name=name)
 
 
 def cast(value, dtype, name=None):
@@ -100,31 +64,7 @@ def cast(value, dtype, name=None):
           Theano.
   Returns:
     The converted value. """
-  if _backend_name == "theano":
-    return _backend.tensor.cast(value, dtype)
-  elif _backend_name == "tensorflow":
-    return _backend.cast(value, dtype, name=name)
-
-def square(value, name=None):
-  """ Squares a value.
-  Args:
-    value: The value to square.
-    name: Optionally, the name of the squared value. This is ignored for Theano.
-  Returns:
-    The squared value. """
-  if _backend_name == "theano":
-    return _backend.tensor.sqr(value)
-  elif _backend_name == "tensorflow":
-    return _backend.square(value, name=name)
-
-def sqrt(value, name=None):
-  """ Takes the square root of a value.
-  Args:
-    value: The value to take the square root of.
-    name: Optionally, the name of the new value. This is ignored for Theano.
-  Returns:
-    The square root of value. """
-  if _backend_name == "theano":
-    return _backend.tensor.sqrt(value)
-  elif _backend_name == "tensorflow":
-    return _backend.sqrt(value, name=name)
+  if sb.backend_name == "theano":
+    return sb.backend.tensor.cast(value, dtype)
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.cast(value, dtype, name=name)

@@ -1,14 +1,9 @@
 import logging
 
-from .primitives import _backend, _backend_name, _utils
+from . import _store_backend as sb
 
 
-# We're going to force the user to manually import primitives and set the
-# backend before importing this module.
-if not _backend:
-  raise RuntimeError( \
-      "Please call primitives.set_backend() before using this module.")
-
+sb.check_backend()
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +29,7 @@ class _Optimizer(object):
     """ This function is only used by Theano. When a function needs to be
     created, it allows whatever's creating that function to obtain the proper
     updates to use in order for this optimizer to work correctly. """
-    if _backend_name == "tensorflow":
+    if sb.backend_name == "tensorflow":
       raise NotImplementedError("'get_updates' is only available with Theano.")
 
     return self._updates
@@ -57,24 +52,24 @@ class GradientDescentOptimizer(_Optimizer):
     weight_decay = kwargs.get("weight_decay", 0)
     params = kwargs.get("params")
 
-    if _backend_name == "theano":
+    if sb.backend_name == "theano":
       if not params:
         raise ValueError("Need 'params' argument with Theano.")
 
       # Compute the updates to use.
-      self._updates = _utils.momentum_sgd(self._to_optimize, params,
-                                          learning_rate, momentum,
-                                          weight_decay)
+      self._updates = sb.theano_utils.momentum_sgd(self._to_optimize, params,
+                                                   learning_rate, momentum,
+                                                   weight_decay)
 
-    elif _backend_name == "tensorflow":
+    elif sb.backend_name == "tensorflow":
       # Use the built-in optimizer.
       # TODO (danielp): Implement weight decay in Tensorflow.
-      self.__optimizer = _backend.MomentumOptimizer(learning_rate, momentum)
+      self.__optimizer = sb.backend.MomentumOptimizer(learning_rate, momentum)
 
   def native(self):
     """ See documentation for superclass method. """
-    if _backend_name == "theano":
+    if sb.backend_name == "theano":
       # Just return the training cost here, which might be useful.
       return self._to_optimize
-    elif _backend_name == "tensorflow":
+    elif sb.backend_name == "tensorflow":
       return self.__optimizer

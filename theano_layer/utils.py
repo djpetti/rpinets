@@ -4,7 +4,7 @@ import theano.tensor as TT
 
 import numpy as np
 
-from ..base_layer import primitives
+from ..base_layer import primitives, math
 
 
 def rmsprop(cost, params, lr, rho, epsilon):
@@ -23,7 +23,7 @@ def rmsprop(cost, params, lr, rho, epsilon):
   for p, g in zip(params, grads):
     acc = primitives.variable(p.get_value() * 0.)
     acc_new = rho * acc + (1 - rho) * g ** 2
-    gradient_scaling = primitives.sqrt(acc_new + epsilon)
+    gradient_scaling = math.sqrt(acc_new + epsilon)
     g = g / gradient_scaling
     updates.append((acc, acc_new))
     updates.append((p, p - lr * g))
@@ -64,7 +64,7 @@ def local_response_normalization(data, depth_radius, bias, alpha, beta):
     beta: An exponent. """
   half = depth_radius // 2
   # Square input data.
-  square = primitives.square(data)
+  square = math.square(data)
 
   batch, maps, x, y = data.shape
   extra_channels = TT.alloc(0, batch, maps + 2 * half, x, y)
