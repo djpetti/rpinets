@@ -28,6 +28,9 @@ def set_backend(backend):
     from .. theano_layer import utils
     _store_backend.theano_utils = utils
 
+    # Initialize random number generator.
+    _store_backend.random = theano.tensor.shared_randomstreams.RandomStreams()
+
   elif backend == "tensorflow":
     # Import tensorflow modules.
     import tensorflow

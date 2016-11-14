@@ -8,6 +8,9 @@ backend_name = ""
 # The theano-specific utilities module.
 theano_utils = None
 
+# Random number generator to use for computations.
+random = None
+
 
 def check_backend():
   """ Checks that backend parameters are actually set. """

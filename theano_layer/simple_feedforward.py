@@ -6,7 +6,6 @@ import logging
 import sys
 
 import theano
-import theano.ifelse
 import theano.tensor as TT
 
 import numpy as np
@@ -42,9 +41,8 @@ class FeedforwardNetwork(object):
     """ Gets the state for pickling. """
     state = (self._weights, self._biases, self._layer_stack, self._cost,
              self._inputs, self._expected_outputs, self.__trainer_type,
-             self.__train_params, self._global_step, self._srng,
-             self._training, self._used_training,
-             self._intermediate_activations,
+             self.__train_params, self._global_step, self._training,
+             self._used_training, self._intermediate_activations,
              self._patch_separation, self._layers, self.__train_kw_params)
     return state
 
@@ -52,9 +50,9 @@ class FeedforwardNetwork(object):
     """ Sets the state for unpickling. """
     self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
     self._expected_outputs, self.__trainer_type, self.__train_params, \
-    self._global_step, self._srng, self._training, \
-    self._used_training, self._intermediate_activations, \
-    self._patch_separation, self._layers, self.__train_kw_params = state
+    self._global_step, self._training, self._used_training, \
+    self._intermediate_activations, self._patch_separation, self._layers, \
+    self.__train_kw_params = state
 
   def _initialize_variables(self, layers, train, test, batch_size,
                             patch_separation=None):
@@ -86,8 +84,7 @@ class FeedforwardNetwork(object):
     self.__train_params = ()
     self.__train_kw_params = {}
 
-    self._srng = TT.shared_randomstreams.RandomStreams()
-    self._training = primitives.placeholder("int8", (), name="training")
+    self._training = primitives.placeholder("int64", (), name="training")
     # Keeps track of whether _training actually gets used, because Theano is
     # annoying about initializing unused variables.
     self._used_training = False
@@ -178,10 +175,7 @@ class FeedforwardNetwork(object):
       if layer.dropout:
         # Do dropout.
         self._used_training = True
-        dropped_out = TT.switch(self._srng.binomial(size=next_inputs.shape,
-                                                    p=0.5), next_inputs, 0)
-        next_inputs = theano.ifelse.ifelse(self._training, dropped_out,
-                                           next_inputs * 0.5)
+        next_inputs = nnet.dropout(next_inputs, 0.5, self._training)
 
       self._intermediate_activations.append(next_inputs)
 
