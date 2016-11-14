@@ -357,8 +357,7 @@ class FeedforwardNetwork(object):
       train_layers: If specified, this should be a list of the layers that are
       actually going to be trained. Otherwise, all of them will be trained.
     Returns:
-      Theano function for training the network. """
-    # Compute gradients for all parameters.
+      Runnable for training the network. """
     params = self.__make_params(train_layers)
     # Create the optimizer.
     grad_desc = optimizer.GradientDescentOptimizer(learning_rate, cost,
@@ -387,21 +386,18 @@ class FeedforwardNetwork(object):
       train_layers: If specified, this should be a list of the layers that are
       actually going to be trained. Otherwise, all of them will be trained.
     Returns:
-      Theano function for training the network. """
+      Runnable for training the network. """
     params = self.__make_params(train_layers)
-
-    updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
-    # Update the global step too.
-    updates.append((self._global_step, self._global_step + 1))
+    # Create the optimizer.
+    rms_prop = optimizer.RmsPropOptimizer(learning_rate, rho, epsilon, cost,
+                                          params=params)
 
     # Index to a minibatch.
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
-                                                       self._global_step],
-                              updates=updates,
-                              givens=givens)
+    trainer = runnable.Runnable([index], [rms_prop, learning_rate], givens)
+
     return trainer
 
   def _build_predictor(self, test_x, batch_size):

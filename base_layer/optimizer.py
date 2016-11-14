@@ -73,3 +73,42 @@ class GradientDescentOptimizer(_Optimizer):
       return self._to_optimize
     elif sb.backend_name == "tensorflow":
       return self.__optimizer
+
+class RmsPropOptimizer(_Optimizer):
+  """ Optimizes a graph using RmsProp. """
+
+  def __init__(self, learning_rate, decay, shift, *args, **kwargs):
+    """
+    See documentation for the superclass method.
+    Additional Args:
+      learning_rate: The learning rate to use.
+      decay: Weight decay.
+      shift: Shift factor for gradient scaling.
+      params: The parameters to update. With Tensorflow, this is technically not
+              needed, but it doesn't hurt to provide it anyway. """
+    super(RmsPropOptimizer, self).__init__(*args, **kwargs)
+
+    params = kwargs.get("params")
+
+    if sb.backend_name == "theano":
+      if not params:
+        raise ValueError("Need 'params' argument with Theano.")
+
+      # Compute the updates to use.
+      # TODO (danielp): Implement momentum here. Maybe.
+      self._updates = sb.theano_utils.rmsprop(self._to_optimize, params,
+                                              learning_rate, decay, shift)
+
+    elif sb.backend_name == "tensorflow":
+      # Use the built-in optimizer.
+      self.__optimizer = sb.backend.RmsPropOptimizer(learning_rate,
+                                                      decay=decay,
+                                                      epsilon=shift)
+
+  def native(self):
+    """ See documentation for superclass method. """
+    if sb.backend_name == "theano":
+      # Just return the training cost here, which might be useful.
+      return self._to_optimize
+    elif sb.backend_name == "tensorflow":
+      return self.__optimizer
