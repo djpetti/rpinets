@@ -5,9 +5,6 @@ from six.moves import cPickle as pickle
 import logging
 import sys
 
-import theano
-import theano.tensor as TT
-
 import numpy as np
 
 from ..base_layer import *
@@ -165,9 +162,9 @@ class FeedforwardNetwork(object):
       layer = layers[i]
       bias = self.__our_biases[i]
 
-      sums = TT.dot(next_inputs, weights) + bias
+      sums = math.dot(next_inputs, weights) + bias
       if i < len(self.__our_weights) - 1:
-        next_inputs = TT.nnet.relu(sums)
+        next_inputs = nnet.relu(sums)
       else:
         # For the last layer, we don't use an activation function.
         next_inputs = sums
@@ -227,9 +224,8 @@ class FeedforwardNetwork(object):
     self._layers.extend(replace_with[1:])
 
     # Since the layer stack changed, we have to update the cost.
-    self._cost = TT.mean( \
-        self._softmax_cross_entropy_with_logits(self._layer_stack,
-                                                self._expected_outputs))
+    self._cost = math.mean( \
+        nnet.softmax_cross_entropy(self._layer_stack, self._expected_outputs))
 
     # Now we changed everything, so we have to rebuild all our functions.
     logger.debug("Rebuilding functions...")
@@ -254,9 +250,8 @@ class FeedforwardNetwork(object):
     self.__add_layers(self._inputs, self._layers)
 
     # Cost function.
-    self._cost = TT.mean( \
-        self._softmax_cross_entropy_with_logits(self._layer_stack,
-                                                self._expected_outputs))
+    self._cost = math.mean( \
+        nnet.softmax_cross_entropy(self._layer_stack, self._expected_outputs))
 
     # Build functions.
     self.__rebuild_functions((self._train_x, self._train_y),
@@ -393,7 +388,7 @@ class FeedforwardNetwork(object):
                                           params=params)
 
     # Index to a minibatch.
-    index = TT.lscalar()
+    index = primitives.placeholder("int64", (), name="rmsprop_batch_index")
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
     trainer = runnable.Runnable([index], [rms_prop, learning_rate], givens)
@@ -406,10 +401,10 @@ class FeedforwardNetwork(object):
       test_x: Testing set inputs.
       batch_size: How big our batches are.
     Returns:
-      Theano function for testing the network. """
+      Runnable for testing the network. """
     index = primitives.placeholder("int64", (), name="predictor_index")
-    softmax = TT.nnet.softmax(self._layer_stack)
-    outputs = TT.argmax(softmax, axis=1)
+    softmax = nnet.softmax(self._layer_stack)
+    outputs = math.argmax(softmax, 1)
 
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
@@ -428,37 +423,22 @@ class FeedforwardNetwork(object):
       test_y: Testing set expected outputs.
       batch_size: How big out batches are.
     Returns:
-      Theano function for evaluating network accuracy. """
+      Runnable function for evaluating network accuracy. """
     index = primitives.placeholder("int64", (), name="tester_index")
-    softmax = TT.nnet.softmax(self._layer_stack)
-    argmax = TT.argmax(softmax, axis=1)
+    softmax = nnet.softmax(self._layer_stack)
+    argmax = math.argmax(softmax, axis=1)
 
     batch_start = index * batch_size
     batch_end = (index + 1) * batch_size
     expected_outputs = test_y[batch_start:batch_end]
-    accuracy = TT.mean(TT.eq(expected_outputs, argmax))
+    accuracy = math.mean(math.equal(expected_outputs, argmax))
     givens={self._inputs: test_x[batch_start:batch_end]}
     if self._used_training:
       givens[self._training] = 0
 
     tester = runnable.Runnable(inputs=[index], outputs=[accuracy],
-                                 givens=givens)
-    tester = theano.function(inputs=[index], outputs=accuracy,
-                             givens=givens)
+                               givens=givens)
     return tester
-
-  def _softmax_cross_entropy_with_logits(self, logits, labels):
-    """ Return the cross-entropy of the prediction with the expected outputs.
-    Args:
-      logits: The actual outputs.
-      labels: The expected outputs.
-    Returns:
-      Symbolic op for the cross-entropy opertaion.
-    """
-    softmax = TT.nnet.softmax(logits)
-    cross = TT.nnet.categorical_crossentropy(softmax, labels)
-
-    return cross
 
   def _extend_with_feedforward(self, inputs, layers, outputs):
     """ Meant to be used by subclasses as a simple way to extend the graph of a

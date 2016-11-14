@@ -45,3 +45,42 @@ def dropout(layer_output, keep_prob, is_training, noise_shape=None, seed=None,
 
     # Ignore it if we're training.
     return sb.backend.cond(is_training, dropped_out, layer_output * 0.5)
+
+def relu(features, name=None):
+  """ Computes the ReLU function.
+  Args:
+    features: The feature tensor to compute ReLU on.
+    name: The name of this operation. This is only used in Tensorflow.
+  Returns:
+    The computed ReLU tensor. """
+  if sb.backend_name == "theano":
+    return sb.backend.tensor.nnet.relu(features)
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.nnet.relu(features, name=name)
+
+def softmax(logits, name=None):
+  """ Computes the softmax of a tensor.
+  Args:
+    logits: The tensor to compute the softmax of.
+  Returns:
+    The computed softmax. """
+  if sb.backend_name == "theano":
+    return sb.backend.tensor.nnet.softmax(logits)
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.nn.softmax(logits, name=name)
+
+def softmax_cross_entropy(logits, labels, name=None):
+  """ Computes the cross-entropy of the prediction with the expected outputs.
+  It also performs the softmax internally for scaling.
+  Args:
+    logits: The actual outputs.
+    labels: The expected outputs.
+  Returns:
+    The computed cross-entropy. """
+  if sb.backend_name == "theano":
+    scaled = softmax(logits)
+    return sb.backend.tensor.nnet.categorical_crossentropy(scaled, labels)
+
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.nn.softmax_cross_entropy_with_logits(logits, labels,
+                                                           name=name)
