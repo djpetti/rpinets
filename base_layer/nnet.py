@@ -3,6 +3,8 @@
 
 import logging
 
+import numpy as np
+
 from . import _store_backend as sb
 
 
@@ -56,7 +58,7 @@ def relu(features, name=None):
   if sb.backend_name == "theano":
     return sb.backend.tensor.nnet.relu(features)
   elif sb.backend_name == "tensorflow":
-    return sb.backend.nnet.relu(features, name=name)
+    return sb.backend.nn.relu(features, name=name)
 
 def softmax(logits, name=None):
   """ Computes the softmax of a tensor.
@@ -84,3 +86,29 @@ def softmax_cross_entropy(logits, labels, name=None):
   elif sb.backend_name == "tensorflow":
     return sb.backend.nn.softmax_cross_entropy_with_logits(logits, labels,
                                                            name=name)
+
+def initialize_xavier(weight_shape):
+  """ An implementation of xavier initialization, based on code from here:
+  https://github.com/Lasagne/Lasagne/blob/master/lasagne/init.py#L103-L177
+  It works for convolutional and inner product layers. It assumes that all
+  neurons are ReLU-activated, and draws from a normal distribution.
+  Args:
+    weigth_shape: The shape of the weights to initialize.
+  Returns:
+    A new array of weight values. """
+  if len(weight_shape) == 4:
+    # This is a convolutional layer.
+    fan_out, fan_in, rows, cols = weight_shape
+    receptive_field = rows * cols
+  else:
+    # This is an inner product layer.
+    fan_out, fan_in = weight_shape
+    receptive_field = 1
+
+  # Compute the standard deviation.
+  stddev = np.sqrt(2.0 / ((fan_out + fan_in) * receptive_field))
+
+  # Get the weight array.
+  weights = np.asarray(np.random.normal(0, stddev, size=weight_shape),
+                       dtype="float32")
+  return weights

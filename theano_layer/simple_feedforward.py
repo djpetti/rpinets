@@ -9,8 +9,6 @@ import numpy as np
 
 from ..base_layer import *
 
-import utils
-
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +98,7 @@ class FeedforwardNetwork(object):
       A shared variable containing the weights. """
     if layer.weight_init == "xavier":
       # Use xavier initialization.
-      weight_values = utils.initialize_xavier(weight_shape)
+      weight_values = nnet.initialize_xavier(weight_shape)
     elif layer.weight_init == "gaussian":
       # Use gaussian initialization.
       dist = np.random.normal(layer.weight_mean, layer.weight_stddev,
@@ -471,7 +469,7 @@ class FeedforwardNetwork(object):
 
     # Handle learning rate decay.
     decayed_learning_rate = \
-        utils.exponential_decay(learning_rate, self._global_step, decay_steps,
+        math.exponential_decay(learning_rate, self._global_step, decay_steps,
                                 decay_rate)
 
     self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
@@ -499,7 +497,7 @@ class FeedforwardNetwork(object):
 
     # Handle learning rate decay.
     decayed_learning_rate = \
-        utils.exponential_decay(learning_rate, self._global_step, decay_steps,
+        math.exponential_decay(learning_rate, self._global_step, decay_steps,
                                 decay_rate)
 
     self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
