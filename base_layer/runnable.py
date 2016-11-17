@@ -45,7 +45,7 @@ class Runnable(object):
           updates.extend(output.get_updates())
 
       self.__function = sb.backend.function(inputs=inputs, outputs=graph_outputs,
-                                          givens=givens, updates=updates)
+                                            givens=givens, updates=updates)
 
     elif sb.backend_name == "tensorflow":
       if not Runnable._session:
@@ -79,6 +79,10 @@ class Runnable(object):
       for tensor, value in zip(self.__inputs, input_values):
         feed_dict[tensor] = value
       logger.debug("Feeding with %s" % (feed_dict))
+
+      # We have to initialize variables.
+      # TODO (danielp): Be smarter about doing this only when we have to.
+      Runnable._session.run(sb.backend.global_variables_initializer())
 
       # Now, we can just run our session.
       return Runnable._session.run(self.__outputs, feed_dict=feed_dict)

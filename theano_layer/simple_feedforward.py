@@ -37,7 +37,7 @@ class FeedforwardNetwork(object):
     state = (self._weights, self._biases, self._layer_stack, self._cost,
              self._inputs, self._expected_outputs, self.__trainer_type,
              self.__train_params, self._global_step, self._training,
-             self._used_training, self._intermediate_activations,
+             self._intermediate_activations,
              self._patch_separation, self._layers, self.__train_kw_params)
     return state
 
@@ -45,7 +45,7 @@ class FeedforwardNetwork(object):
     """ Sets the state for unpickling. """
     self._weights, self._biases, self._layer_stack, self._cost, self._inputs, \
     self._expected_outputs, self.__trainer_type, self.__train_params, \
-    self._global_step, self._training, self._used_training, \
+    self._global_step, self._training, \
     self._intermediate_activations, self._patch_separation, self._layers, \
     self.__train_kw_params = state
 
@@ -80,9 +80,6 @@ class FeedforwardNetwork(object):
     self.__train_kw_params = {}
 
     self._training = primitives.placeholder("int64", (), name="training")
-    # Keeps track of whether _training actually gets used, because Theano is
-    # annoying about initializing unused variables.
-    self._used_training = False
 
     # Keeps track of the number of times we've run the trainer.
     self._global_step = 0
@@ -169,7 +166,6 @@ class FeedforwardNetwork(object):
 
       if layer.dropout:
         # Do dropout.
-        self._used_training = True
         next_inputs = nnet.dropout(next_inputs, 0.5, self._training)
 
       self._intermediate_activations.append(next_inputs)
@@ -238,11 +234,27 @@ class FeedforwardNetwork(object):
     # Initialize all the weights first.
     self.__initialize_weights(self._layers, outputs)
 
-    # Inputs and outputs.
-    self._inputs = primitives.placeholder("float32", (None, None),
-                                          name="inputs")
-    self._expected_outputs = primitives.placeholder("int32", (None,),
+    self._expected_outputs = primitives.placeholder("int64", (None,),
                                                     name="expected_outputs")
+
+    # Index to the batch that we will use.
+    self._batch_index = primitives.placeholder("int32", (), name="batch_index")
+    # Compute the inputs based on the batch indices. Of course, it's
+    # complicated, because we may or may not be training, and that determines
+    # the data that we use.
+    batch_start = self._batch_index * self._batch_size
+    batch_end = batch_start + self._batch_size
+
+    training_batch_x = self._train_x[batch_start:batch_end]
+    training_batch_y = self._train_y[batch_start:batch_end]
+    testing_batch_x = self._test_x[batch_start:batch_end]
+    testing_batch_y = self._test_y[batch_start:batch_end]
+
+    # Pick the right one.
+    self._inputs = flow.ifelse(self._training, training_batch_x,
+                               testing_batch_x)
+    self._expected_outputs = flow.ifelse(self._training, training_batch_y,
+                                         testing_batch_y)
 
     # Build actual layer model.
     self.__add_layers(self._inputs, self._layers)
@@ -255,25 +267,13 @@ class FeedforwardNetwork(object):
     self.__rebuild_functions((self._train_x, self._train_y),
                              (self._test_x, self._test_y))
 
-  def __make_givens(self, batch_x, batch_y, index, batch_size, training):
+  def __make_givens(self, training):
     """ Makes the givens dictionary for a training or testing function.
     Args:
-      batch_x: The input data.
-      batch_y: The input labels.
-      index: The index into the batch where we are starting.
-      batch_size: The size of the batch.
       training: Whether we are training or not.
     Returns:
       The dictionary to use for givens. """
-    batch_start = index * batch_size
-    batch_end = (index + 1) * batch_size
-
-    givens = {self._inputs: batch_x[batch_start:batch_end],
-              self._expected_outputs: batch_y[batch_start:batch_end]}
-
-    if self._used_training:
-      givens[self._training] = training
-
+    givens = {self._training: training}
     return givens
 
   def __rebuild_functions(self, train, test, learning_rate=None,
@@ -292,10 +292,9 @@ class FeedforwardNetwork(object):
 
       # Build predictor.
       self._prediction_operation = \
-          self._build_predictor(self._test_x, self._batch_size)
+          self._build_predictor()
       # Build tester.
-      self._tester = self._build_tester(self._test_x, self._test_y,
-                                        self._batch_size)
+      self._tester = self._build_tester()
 
     if train:
       # Set datasets.
@@ -339,14 +338,11 @@ class FeedforwardNetwork(object):
     return params
 
   def _build_sgd_trainer(self, cost, learning_rate, momentum, weight_decay,
-                         train_x, train_y, batch_size, train_layers=None):
+                         train_layers=None):
     """ Builds a new SGD trainer for the network.
     Args:
       cost: The cost function we are using.
       learning_rate: The learning rate to use for training.
-      train_x: Training set inputs.
-      train_y: Training set expected outputs.
-      batch_size: How big our batches are.
       train_layers: If specified, this should be a list of the layers that are
       actually going to be trained. Otherwise, all of them will be trained.
     Returns:
@@ -357,25 +353,21 @@ class FeedforwardNetwork(object):
                                                    momentum=momentum,
                                                    weight_decay=weight_decay,
                                                    params=params)
-    # Index to a minibatch.
-    index = primitives.placeholder("int64", (), name="sgd_batch_index")
     # Create the actual function.
-    givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = runnable.Runnable([index], [grad_desc, learning_rate], givens)
+    givens = self.__make_givens(1)
+    trainer = runnable.Runnable([self._batch_index],
+                                [grad_desc, learning_rate], givens)
 
     return trainer
 
-  def _build_rmsprop_trainer(self, cost, learning_rate, rho, epsilon, train_x,
-                             train_y, batch_size, train_layers=None):
+  def _build_rmsprop_trainer(self, cost, learning_rate, rho, epsilon,
+                             train_layers=None):
     """ Builds a new RMSProp trainer.
     Args:
       cost: The cost function we are using.
       learning_rate: The learning rate to use for training.
       rho: Weight decay.
       epsilon: Shift factor for gradient scaling.
-      train_x: Training set inputs.
-      train_y: Training set expected outputs.
-      batch_size: How big our batches are.
       train_layers: If specified, this should be a list of the layers that are
       actually going to be trained. Otherwise, all of them will be trained.
     Returns:
@@ -385,56 +377,43 @@ class FeedforwardNetwork(object):
     rms_prop = optimizer.RmsPropOptimizer(learning_rate, rho, epsilon, cost,
                                           params=params)
 
-    # Index to a minibatch.
-    index = primitives.placeholder("int64", (), name="rmsprop_batch_index")
     # Create the actual function.
-    givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = runnable.Runnable([index], [rms_prop, learning_rate], givens)
+    givens = self.__make_givens(1)
+    trainer = runnable.Runnable([self._batch_index], [rms_prop, learning_rate],
+                                givens)
 
     return trainer
 
-  def _build_predictor(self, test_x, batch_size):
+  def _build_predictor(self):
     """ Builds a prediction function that computes a forward pass.
-    Args:
-      test_x: Testing set inputs.
-      batch_size: How big our batches are.
     Returns:
       Runnable for testing the network. """
-    index = primitives.placeholder("int64", (), name="predictor_index")
+    index = primitives.placeholder("int32", (), name="predictor_index")
     softmax = nnet.softmax(self._layer_stack)
     outputs = math.argmax(softmax, 1)
 
-    batch_start = index * batch_size
-    batch_end = (index + 1) * batch_size
-    givens={self._inputs: test_x[batch_start:batch_end]}
-    if self._used_training:
-      givens[self._training] = 0
+    givens = self.__make_givens(0)
 
-    predictor = runnable.Runnable([index], [outputs], givens)
+    predictor = runnable.Runnable([self._batch_index], [outputs], givens)
     return predictor
 
-  def _build_tester(self, test_x, test_y, batch_size):
+  def _build_tester(self):
     """ Builds a function that can be used to evaluate the accuracy of the
     network on the testing data.
-    Args:
-      test_x: Testing set inputs.
-      test_y: Testing set expected outputs.
-      batch_size: How big out batches are.
     Returns:
       Runnable function for evaluating network accuracy. """
-    index = primitives.placeholder("int64", (), name="tester_index")
+    index = primitives.placeholder("int32", (), name="tester_index")
     softmax = nnet.softmax(self._layer_stack)
     argmax = math.argmax(softmax, axis=1)
 
-    batch_start = index * batch_size
-    batch_end = (index + 1) * batch_size
-    expected_outputs = test_y[batch_start:batch_end]
-    accuracy = math.mean(math.equal(expected_outputs, argmax))
-    givens={self._inputs: test_x[batch_start:batch_end]}
-    if self._used_training:
-      givens[self._training] = 0
+    equal = math.equal(self._expected_outputs, argmax)
+    # Convert to ints so we can take the average.
+    equal = primitives.cast(equal, "int32")
 
-    tester = runnable.Runnable(inputs=[index], outputs=[accuracy],
+    accuracy = math.mean(equal)
+    givens = self.__make_givens(0)
+
+    tester = runnable.Runnable(inputs=[self._batch_index], outputs=[accuracy],
                                givens=givens)
     return tester
 
@@ -474,8 +453,7 @@ class FeedforwardNetwork(object):
 
     self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
                                               momentum, weight_decay,
-                                              self._train_x, self._train_y,
-                                              self._batch_size, train_layers)
+                                              train_layers)
 
   def use_rmsprop_trainer(self, learning_rate, rho, epsilon, decay_rate=1,
                           decay_steps=1, train_layers=None):
@@ -501,10 +479,7 @@ class FeedforwardNetwork(object):
                                 decay_rate)
 
     self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
-                                                  rho, epsilon, self._train_x,
-                                                  self._train_y,
-                                                  self._batch_size,
-                                                  train_layers)
+                                                  rho, epsilon, train_layers)
 
   @property
   def predict(self):

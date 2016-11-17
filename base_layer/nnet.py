@@ -6,6 +6,7 @@ import logging
 import numpy as np
 
 from . import _store_backend as sb
+from . import flow
 
 
 sb.check_backend()
@@ -38,15 +39,14 @@ def dropout(layer_output, keep_prob, is_training, noise_shape=None, seed=None,
 
     distribution = sb.random.binomial(size=noise_shape, p=keep_prob)
     dropped_out = sb.backend.tensor.switch(distribution, layer_output, 0)
-    return sb.backend.ifelse.ifelse(is_training, dropped_out, layer_output * 0.5)
 
   elif sb.backend_name == "tensorflow":
     dropped_out = sb.backend.nn.dropout(layer_output, keep_prob,
                                         noise_shape=noise_shape,
                                         seed=seed, name=name)
 
-    # Ignore it if we're training.
-    return sb.backend.cond(is_training, dropped_out, layer_output * 0.5)
+  # Don't do dropout if we're training.
+  return flow.ifelse(is_training, dropped_out, layer_output * 0.5)
 
 def relu(features, name=None):
   """ Computes the ReLU function.

@@ -64,7 +64,8 @@ class GradientDescentOptimizer(_Optimizer):
     elif sb.backend_name == "tensorflow":
       # Use the built-in optimizer.
       # TODO (danielp): Implement weight decay in Tensorflow.
-      self.__optimizer = sb.backend.MomentumOptimizer(learning_rate, momentum)
+      optimizer = sb.backend.train.MomentumOptimizer(learning_rate, momentum)
+      self.__optimizer = optimizer.minimize(self._to_optimize)
 
   def native(self):
     """ See documentation for superclass method. """
@@ -101,9 +102,10 @@ class RmsPropOptimizer(_Optimizer):
 
     elif sb.backend_name == "tensorflow":
       # Use the built-in optimizer.
-      self.__optimizer = sb.backend.RmsPropOptimizer(learning_rate,
-                                                      decay=decay,
-                                                      epsilon=shift)
+      optimizer = sb.backend.train.RMSPropOptimizer(learning_rate,
+                                                    decay=decay,
+                                                    epsilon=shift)
+      self.__optimizer = optimizer.minimize(self._to_optimize)
 
   def native(self):
     """ See documentation for superclass method. """

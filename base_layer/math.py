@@ -84,7 +84,7 @@ def equal(tensor1, tensor2, name=None):
   if sb.backend_name == "theano":
     return sb.backend.tensor.eq(tensor1, tensor2)
   elif sb.backend_name == "tensorflow":
-    return self.backend.equal(tensor1, tensor2, name=name)
+    return sb.backend.equal(tensor1, tensor2, name=name)
 
 def exponential_decay(learning_rate, global_step, decay_steps, decay_rate):
   """ Applies an exponential decay to the learning rate.
