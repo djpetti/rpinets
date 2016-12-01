@@ -12,6 +12,7 @@ import theano.tensor as TT
 
 import numpy as np
 
+import learning_rates
 import utils
 
 
@@ -323,6 +324,7 @@ class FeedforwardNetwork(object):
       if builder:
         params = list(self.__train_params)
         kw_params = self.__train_kw_params
+
         if learning_rate != None:
           # Use custom learning rate.
           params[0] = learning_rate
@@ -355,7 +357,8 @@ class FeedforwardNetwork(object):
     """ Builds a new SGD trainer for the network.
     Args:
       cost: The cost function we are using.
-      learning_rate: The learning rate to use for training.
+      learning_rate: The learning rate to use for training. Should be a class
+                     from learning_rates.
       train_x: Training set inputs.
       train_y: Training set expected outputs.
       batch_size: How big our batches are.
@@ -367,7 +370,8 @@ class FeedforwardNetwork(object):
     params = self.__make_params(train_layers)
 
     # Tell it how to update the parameters.
-    updates, grads = utils.momentum_sgd(cost, params, learning_rate, momentum,
+    use_lr = learning_rate.get(self._global_step)
+    updates, grads = utils.momentum_sgd(cost, params, use_lr, momentum,
                                         weight_decay)
     # Update the global step too.
     updates.append((self._global_step, self._global_step + 1))
@@ -376,7 +380,7 @@ class FeedforwardNetwork(object):
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
+    trainer = theano.function(inputs=[index], outputs=[cost, use_lr,
                                                        self._global_step],
                               updates=updates,
                               givens=givens)
@@ -387,7 +391,8 @@ class FeedforwardNetwork(object):
     """ Builds a new RMSProp trainer.
     Args:
       cost: The cost function we are using.
-      learning_rate: The learning rate to use for training.
+      learning_rate: The learning rate to use for training. Should be a class
+                     from learning_rates.
       rho: Weight decay.
       epsilon: Shift factor for gradient scaling.
       train_x: Training set inputs.
@@ -399,7 +404,8 @@ class FeedforwardNetwork(object):
       Theano function for training the network. """
     params = self.__make_params(train_layers)
 
-    updates = utils.rmsprop(cost, params, learning_rate, rho, epsilon)
+    use_lr = learning_rate.get(self._global_step)
+    updates = utils.rmsprop(cost, params, use_lr, rho, epsilon)
     # Update the global step too.
     updates.append((self._global_step, self._global_step + 1))
 
@@ -407,7 +413,7 @@ class FeedforwardNetwork(object):
     index = TT.lscalar()
     # Create the actual function.
     givens = self.__make_givens(train_x, train_y, index, batch_size, 1)
-    trainer = theano.function(inputs=[index], outputs=[cost, learning_rate,
+    trainer = theano.function(inputs=[index], outputs=[cost, use_lr,
                                                        self._global_step],
                               updates=updates,
                               givens=givens)
@@ -484,55 +490,48 @@ class FeedforwardNetwork(object):
     self.__add_layers(inputs, layers)
 
   def use_sgd_trainer(self, learning_rate, momentum=0.9, weight_decay=0.0005,
-                      decay_rate=1, decay_steps=1, train_layers=None):
+                      train_layers=None):
     """ Tells it to use SGD to train the network.
     Args:
       learning_rate: The learning rate to use for training.
       momentum: The momentum to use for SGD.
       weight_decay: The weight decay to use for SGD.
-      decay_rate: An optional exponential decay rate for the learning rate.
-      decay_steps: An optinal number of steps to decay in.
       train_layers: A list of the layer indices to actually train. If not
       specified, it will train all of them. """
     # Save these for use when saving and loading the network.
     self.__trainer_type = "sgd"
     self.__train_params = (learning_rate, momentum, weight_decay)
-    self.__train_kw_params = {"decay_rate": decay_rate,
-                              "decay_steps": decay_steps,
-                              "train_layers": train_layers}
+    self.__train_kw_params = {"train_layers": train_layers}
 
-    # Handle learning rate decay.
-    decayed_learning_rate = \
-        utils.exponential_decay(learning_rate, self._global_step, decay_steps,
-                                decay_rate)
+    # If the user simply passes in a number for the learning rate, we'll just
+    # assume it's fixed.
+    if not isinstance(learning_rate, learning_rates._LearningRate):
+      logger.debug("Assuming fixed learning rate: %f" % (learning_rate))
+      learning_rate = learning_rates.Fixed(learning_rate)
 
-    self._optimizer = self._build_sgd_trainer(self._cost, decayed_learning_rate,
+    self._optimizer = self._build_sgd_trainer(self._cost, learning_rate,
                                               momentum, weight_decay,
                                               self._train_x, self._train_y,
                                               self._batch_size, train_layers)
 
-  def use_rmsprop_trainer(self, learning_rate, rho, epsilon, decay_rate=1,
-                          decay_steps=1, train_layers=None):
+  def use_rmsprop_trainer(self, learning_rate, rho, epsilon, train_layers=None):
     """ Tells it to use RMSProp to train the network.
     Args:
       learning_rate: The learning rate to use for training.
       rho: Weight decay.
       epsilon: Shift factor for gradient scaling.
-      decay_rate: An optinal exponential decay rate for the learning rate.
-      decay_steps: An optional number of steps to decay in.
       train_layers: A list of the layer indices to actually train. If not
       specified, it will train all of them. """
     # Save these for use when saving and loading the network.
     self.__trainer_type = "rmsprop"
     self.__train_params = (learning_rate, rho, epsilon)
-    self.__train_kw_params = {"decay_rate": decay_rate,
-                              "decay_steps": decay_steps,
-                              "train_layers": train_layers}
+    self.__train_kw_params = {"train_layers": train_layers}
 
-    # Handle learning rate decay.
-    decayed_learning_rate = \
-        utils.exponential_decay(learning_rate, self._global_step, decay_steps,
-                                decay_rate)
+    # If the user simply passes in a number for the learning rate, we'll just
+    # assume it's fixed.
+    if not isinstance(learning_rate, learning_rates._LearningRate):
+      logger.debug("Assuming fixed learning rate: %f" % (learning_rate))
+      learning_rate = learning_rates.Fixed(learning_rate)
 
     self._optimizer = self._build_rmsprop_trainer(self._cost, decayed_learning_rate,
                                                   rho, epsilon, self._train_x,
