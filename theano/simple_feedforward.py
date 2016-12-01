@@ -605,3 +605,10 @@ class FeedforwardNetwork(object):
   def get_test_x(self):
     """ Returns: The input testing image buffer. """
     return self._test_x
+
+  def reset_global_step(self, value=0):
+    """ Resets the global step variable.
+    Args:
+      value: The value to reset it to. This defaults to zero. """
+    logger.info("Resetting global step value to %d." % (value))
+    self._global_step.set_value(value)
