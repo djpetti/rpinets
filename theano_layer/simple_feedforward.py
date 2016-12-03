@@ -227,16 +227,10 @@ class FeedforwardNetwork(object):
     test = (self._test_x, self._test_y)
     self.__rebuild_functions(train, test)
 
-  def __build_model(self, outputs):
-    """ Actually constructs the graph for this model.
-    Args:
-      outputs: The number of outputs of the network. """
-    # Initialize all the weights first.
-    self.__initialize_weights(self._layers, outputs)
-
-    self._expected_outputs = primitives.placeholder("int64", (None,),
-                                                    name="expected_outputs")
-
+  def _set_inputs_and_outptus(self):
+    """ Creates the symbolic input and output variables correctly based on
+    whether training or testing is occurring. It initializes the self._inputs,
+    self._expected_outputs, and self._batch_index parameters. """
     # Index to the batch that we will use.
     self._batch_index = primitives.placeholder("int32", (), name="batch_index")
     # Compute the inputs based on the batch indices. Of course, it's
@@ -255,6 +249,15 @@ class FeedforwardNetwork(object):
                                testing_batch_x)
     self._expected_outputs = flow.ifelse(self._training, training_batch_y,
                                          testing_batch_y)
+
+  def __build_model(self, outputs):
+    """ Actually constructs the graph for this model.
+    Args:
+      outputs: The number of outputs of the network. """
+    # Initialize all the weights first.
+    self.__initialize_weights(self._layers, outputs)
+
+    self._set_inputs_and_outptus()
 
     # Build actual layer model.
     self.__add_layers(self._inputs, self._layers)

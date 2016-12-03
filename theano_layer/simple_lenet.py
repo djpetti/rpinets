@@ -1,16 +1,11 @@
-""" A very simple LeNet implementation intended to be used for comparing
-theano to other libraries. """
+""" A very simple LeNet implementation. """
 
-
-import theano
-import theano.tensor as TT
-import theano.tensor.signal.pool as pool
 
 import numpy as np
 
+from ..base_layer import *
 from layers import ConvLayer, PoolLayer, NormalizationLayer
 from simple_feedforward import FeedforwardNetwork
-import utils
 
 
 class LeNetClassifier(FeedforwardNetwork):
@@ -75,7 +70,7 @@ class LeNetClassifier(FeedforwardNetwork):
 
     self.__our_weights = []
     self.__our_biases = []
-    # Keeps track of weight shapes because Theano is annoying about that.
+    # Keeps track of weight shapes.
     self.__weight_shapes = []
     # Extract only convolutional layers.
     only_convolution = []
@@ -96,8 +91,8 @@ class LeNetClassifier(FeedforwardNetwork):
 
       # Initialize biases.
       bias_values = np.full((layer.feature_maps,), layer.start_bias,
-                             dtype=theano.config.floatX)
-      bias = theano.shared(bias_values)
+                             dtype="float32")
+      bias = primitives.variable(bias_values)
       self.__our_biases.append(bias)
 
       input_feature_maps = layer.feature_maps
@@ -121,19 +116,18 @@ class LeNetClassifier(FeedforwardNetwork):
         weights = self.__our_weights[weight_index]
         output_feature_maps, _, _, _ = self.__weight_shapes[weight_index]
 
-        conv = TT.nnet.conv2d(next_inputs, weights,
-                              subsample=(layer_spec.stride_width,
-                                         layer_spec.stride_height),
-                              border_mode=layer_spec.border_mode)
+        conv = nnet.conv2d(next_inputs, weights,
+                           (layer_spec.stride_width, layer_spec.stride_height),
+                           layer_spec.border_mode)
         # Activation.
         bias = self.__our_biases[weight_index]
-        next_inputs = TT.nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
+        next_inputs = nnet.relu(conv + bias.dimshuffle("x", 0, "x", "x"))
 
         weight_index += 1
 
       elif isinstance(layer_spec, NormalizationLayer):
         # Local normalization.
-        next_inputs = utils.local_response_normalization(next_inputs,
+        next_inputs = nnet.local_response_normalization(next_inputs,
             layer_spec.depth_radius, layer_spec.bias, layer_spec.alpha,
             layer_spec.beta)
 
@@ -141,15 +135,14 @@ class LeNetClassifier(FeedforwardNetwork):
         # Max pooling.
         kernel_size = (layer_spec.kernel_width, layer_spec.kernel_height)
         stride_size = (layer_spec.stride_width, layer_spec.stride_height)
-        next_inputs = pool.pool_2d(next_inputs, kernel_size,
-                                  ignore_border=True,
-                                  st=stride_size)
+        next_inputs = nnet.max_pool(next_inputs, kernel_size,
+                                    stride_size, "VALID")
 
       self._intermediate_activations.append(next_inputs)
 
     # Reshape convolution outputs so they can be used as inputs to the
     # feedforward network.
-    flattened_inputs = TT.flatten(next_inputs, 2)
+    flattened_inputs = math.flatten(next_inputs, 2)
     # Now that we're done building our weights, add them to the global list of
     # weights for gradient calculation.
     self._weights.extend(self.__our_weights)
@@ -168,22 +161,18 @@ class LeNetClassifier(FeedforwardNetwork):
     num_inputs = feedforward_layers[0].size
     self.__initialize_weights(image_size, conv_layers, num_inputs)
 
-    # Inputs and outputs.
-    self._inputs = TT.ftensor4("inputs")
-    self._expected_outputs = TT.ivector("expected_outputs")
+    # Create input and output variables.
+    self._set_inputs_and_outptus()
 
     # Build actual layer model.
     self.__add_layers(conv_layers, feedforward_layers, outputs)
     # Now _layer_stack should contain the entire network.
 
     # Build cost function.
-    self._cost = TT.mean( \
-        self._softmax_cross_entropy_with_logits(self._layer_stack,
-                                                self._expected_outputs))
+    self._cost = math.mean( \
+        nnet.softmax_cross_entropy(self._layer_stack, self._expected_outputs))
 
     # Does an actual prediction.
-    self._prediction_operation = self._build_predictor(self._test_x,
-                                                       self._batch_size)
+    self._prediction_operation = self._build_predictor()
     # Evaluates the network's accuracy on the testing data.
-    self._tester = self._build_tester(self._test_x, self._test_y,
-                                      self._batch_size)
+    self._tester = self._build_tester()

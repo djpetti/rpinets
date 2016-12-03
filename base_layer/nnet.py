@@ -112,3 +112,84 @@ def initialize_xavier(weight_shape):
   weights = np.asarray(np.random.normal(0, stddev, size=weight_shape),
                        dtype="float32")
   return weights
+
+def conv2d(inputs, filters, strides, border_mode):
+  """ Performs a 2D convolution on the input.
+  Args:
+    inputs: The input to convolve.
+    filters: The filters to use for the convolution.
+    strides: Factor by which to subsample the output. This should be a tuple of
+             the horizontal and vertical strides.
+    border_mode: How to deal with the edge. Accepts "valid" and "half"
+                 currently. The former only includes filter positions where
+                 nothing goes off the edge, the latter pads the image with a
+                 symmetric border.
+  Returns:
+    A convolution op. """
+  if sb.backend_name == "theano":
+    return sb.backend.tensor.nnet.conv2d(inputs, filters, subsample=strides,
+                                         border_mode=border_mode)
+  elif sb.backend_name == "tensorflow":
+    # Tensorflow uses different names for its border modes.
+    tf_border_modes = {"valid": "VALID", "half": "SAME"}
+    border_mode = tf_border_modes[border_mode]
+
+    # Tensorflow also wants the strides to be four elements long.
+    strides = [1, strides[0], strides[1], 1]
+
+    return sb.backend.nn.conv2d(inputs, filters, strides, border_mode)
+
+def max_pool(inputs, kernel_shape, strides, padding):
+  """ Performs a 2D max pooling operation on the input.
+  Args:
+    inputs: The input to max pool.
+    kernel_shape: A tuple of the width and height of the kernel to use for
+                  pooling.
+    strides: The horizontal and vertical strides to use.
+    border_mode: How to deal with the edge. Accepts "valid" and "half"
+                 currently.
+  Returns:
+    A max pooling op. """
+  if sb.backend_name == "theano":
+    ignore_border = (padding == "VALID")
+    return sb.backend.tensor.signal.pool.pool_2d(inputs, kernel_shape,
+                                                 ignore_border=ignore_border,
+                                                 st=strides)
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.nn.max_pool(inputs, kernel_shape, strides, padding)
+
+def local_response_normalization(data, depth_radius, bias, alpha, beta):
+  """ Local response normalization, as described in the AlexNet paper.
+
+  The 4D input tensor is interpreted as a 3D tensor of 1D vectors (Along the
+  second dimension, as these are our feature maps that we want to normalize
+  accross), and each vector is normalized independently.
+  Args:
+    data: The input data to use.
+    depth_radius: Half-width of the 1D normalization window.
+    bias: An offset.
+    alpha: A scale factor.
+    beta: An exponent. """
+  if sb.backend_name == "theano":
+    # Theano requires a sort of DIY implementation.
+    half = depth_radius // 2
+    # Square input data.
+    square = math.square(data)
+
+    batch, maps, x, y = data.shape
+    extra_channels = sb.backend.tensor.alloc(0, batch, maps + 2 * half, x, y)
+    square = sb.backend.tensor.set_subtensor( \
+        extra_channels[:, half:half + maps, :, :], square)
+
+    # Compute our scaling factor.
+    scale = bias
+    for i in range(depth_radius):
+      scale += alpha * square[:, i:i + maps, :, :]
+    scale = scale ** beta
+
+    return data / scale
+
+  elif sb.backend_name == "tensorflow":
+    return sb.backend.nn.local_response_normalization(data, depth_radius,
+                                                      bias=bias, alpha=alpha,
+                                                      beta=beta)

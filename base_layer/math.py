@@ -1,3 +1,5 @@
+import numpy as np
+
 from . import _store_backend as sb
 from . import primitives
 
@@ -97,3 +99,23 @@ def exponential_decay(learning_rate, global_step, decay_steps, decay_rate):
     An exponentially decayed learning rate. """
   rate = learning_rate * decay_rate ** (global_step / decay_steps)
   return primitives.cast(rate, "float32")
+
+def flatten(tensor, outdim=1):
+  """ Flattens a tensor into a vector.
+  Args:
+    tensor: The tensor to flatten.
+    outdim: The number of dimensions in the result. It defaults to 1.
+  Returns:
+    The flattened tensor. """
+  if sb.backend_name == "theano":
+    return sb.backend.tensor.flatten(tensor, outdim=outdim)
+
+  elif sb.backend_name == "tensorflow":
+    # Tensorflow doesn't actually have a native flattening op, but we can fake
+    # it easily.
+    shape = tensor.get_shape().as_list()
+    new_dim_size = np.prod(shape[outdim:])
+
+    new_shape = [-1] * (outdim - 1) + [new_dim_size]
+    logger.debug("Reshaping to: %s" % (new_shape))
+    return sb.backend.reshape(x, new_shape)
