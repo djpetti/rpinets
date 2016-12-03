@@ -137,7 +137,8 @@ def conv2d(inputs, filters, strides, border_mode):
     # Tensorflow also wants the strides to be four elements long.
     strides = [1, strides[0], strides[1], 1]
 
-    return sb.backend.nn.conv2d(inputs, filters, strides, border_mode)
+    return sb.backend.nn.conv2d(inputs, filters, strides, border_mode,
+                                data_format="NCHW")
 
 def max_pool(inputs, kernel_shape, strides, padding):
   """ Performs a 2D max pooling operation on the input.

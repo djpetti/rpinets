@@ -1,8 +1,12 @@
 import numpy as np
 
+import logging
+
 from . import _store_backend as sb
 from . import primitives
 
+
+logger = logging.getLogger(__name__)
 
 sb.check_backend()
 
@@ -114,8 +118,8 @@ def flatten(tensor, outdim=1):
     # Tensorflow doesn't actually have a native flattening op, but we can fake
     # it easily.
     shape = tensor.get_shape().as_list()
-    new_dim_size = np.prod(shape[outdim:])
+    new_dim_size = np.prod(shape[outdim - 1:])
 
     new_shape = [-1] * (outdim - 1) + [new_dim_size]
     logger.debug("Reshaping to: %s" % (new_shape))
-    return sb.backend.reshape(x, new_shape)
+    return sb.backend.reshape(tensor, new_shape)
