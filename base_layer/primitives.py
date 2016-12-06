@@ -4,10 +4,11 @@ a unified API for them. """
 
 import logging
 
-from . import _store_backend as sb
+from . import _store_globals as sg
+from . import saver
 
 
-sb.check_backend()
+sg.check_backend()
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +29,17 @@ def placeholder(dtype, shape, name=None):
     name: Optionally gives a name to this placeholder.
   Returns:
     The native placeholder type that was created. """
-  if sb.backend_name == "theano":
+  if sg.backend_name == "theano":
     # Get the broadcasting right.
     broadcastable = [False] * len(shape)
 
     # Implement as a TensorType.
-    use_type = sb.backend.tensor.TensorType(dtype, broadcastable)
+    use_type = sg.backend.tensor.TensorType(dtype, broadcastable)
     return use_type(name)
 
-  elif sb.backend_name == "tensorflow":
+  elif sg.backend_name == "tensorflow":
     # Implement with a placeholder.
-    return sb.backend.placeholder(dtype, shape=shape, name=name)
+    return sg.backend.placeholder(dtype, shape=shape, name=name)
 
 def variable(initial_value, name=None):
   """ A class representing a shared variable, which can be stored in GPU memory
@@ -49,11 +50,15 @@ def variable(initial_value, name=None):
     name: An optional name for the variable.
   Returns:
     The native variable type that was created. """
-  if sb.backend_name == "theano":
-    return sb.backend.shared(initial_value, name=name)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.Variable(initial_value, name=name)
+  variable = None
+  if sg.backend_name == "theano":
+    variable = sg.backend.shared(initial_value, name=name)
+  elif sg.backend_name == "tensorflow":
+    variable = sg.backend.Variable(initial_value, name=name)
 
+  # Register the variable with savers.
+  saver.VariableSaver.register_with_all(variable)
+  return variable
 
 def cast(value, dtype, name=None):
   """ Converts a value to the specified type, symbolically.
@@ -64,7 +69,7 @@ def cast(value, dtype, name=None):
           Theano.
   Returns:
     The converted value. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.cast(value, dtype)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.cast(value, dtype, name=name)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.cast(value, dtype)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.cast(value, dtype, name=name)

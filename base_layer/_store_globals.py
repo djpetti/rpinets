@@ -1,4 +1,4 @@
-""" Utility for getting and storing the backend. """
+""" Utility for getting and storing state accross the entire package. """
 
 
 # The backend module to use for computations.
@@ -10,6 +10,11 @@ theano_utils = None
 
 # Random number generator to use for computations.
 random = None
+
+# The session we're using. (For Tensorflow.)
+session = None
+# The savers to use for variable auto-registration.
+savers = []
 
 
 def check_backend():

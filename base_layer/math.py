@@ -2,13 +2,13 @@ import numpy as np
 
 import logging
 
-from . import _store_backend as sb
+from . import _store_globals as sg
 from . import primitives
 
 
 logger = logging.getLogger(__name__)
 
-sb.check_backend()
+sg.check_backend()
 
 
 def square(value, name=None):
@@ -18,10 +18,10 @@ def square(value, name=None):
     name: Optionally, the name of the squared value. This is ignored for Theano.
   Returns:
     The squared value. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.sqr(value)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.square(value, name=name)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.sqr(value)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.square(value, name=name)
 
 def sqrt(value, name=None):
   """ Takes the square root of a value.
@@ -30,10 +30,10 @@ def sqrt(value, name=None):
     name: Optionally, the name of the new value. This is ignored for Theano.
   Returns:
     The square root of value. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.sqrt(value)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.sqrt(value, name=name)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.sqrt(value)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.sqrt(value, name=name)
 
 def dot(matrix1, matrix2, name=None):
   """ Computes the dot product of two matrices.
@@ -43,10 +43,10 @@ def dot(matrix1, matrix2, name=None):
     name: Optionally, the name of the new value. This is ignored for Theano.
   Returns:
     The dot product. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.dot(matrix1, matrix2)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.matmul(matrix1, matrix2, name=None)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.dot(matrix1, matrix2)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.matmul(matrix1, matrix2, name=None)
 
 def mean(tensor, axis=None, keepdims=False, name=None):
   """ Computes the mean of a tensor along some axis.
@@ -64,10 +64,10 @@ def mean(tensor, axis=None, keepdims=False, name=None):
     # list.
     axis = [axis]
 
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.mean(tensor, axis=axis, keepdims=keepdims)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.reduce_mean(tensor, reduction_indices=axis,
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.mean(tensor, axis=axis, keepdims=keepdims)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.reduce_mean(tensor, reduction_indices=axis,
                                   keep_dims=keepdims, name=name)
 
 def argmax(tensor, axis, name=None):
@@ -78,19 +78,19 @@ def argmax(tensor, axis, name=None):
     name: Name of the new value. This is ignored for Theano.
   Returns:
     The index of the max value along axis. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.argmax(tensor, axis=axis)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.argmax(tensor, axis, name=name)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.argmax(tensor, axis=axis)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.argmax(tensor, axis, name=name)
 
 def equal(tensor1, tensor2, name=None):
   """
   Returns:
     The truth value of tensor1 == tensor2 elementwise. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.eq(tensor1, tensor2)
-  elif sb.backend_name == "tensorflow":
-    return sb.backend.equal(tensor1, tensor2, name=name)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.eq(tensor1, tensor2)
+  elif sg.backend_name == "tensorflow":
+    return sg.backend.equal(tensor1, tensor2, name=name)
 
 def exponential_decay(learning_rate, global_step, decay_steps, decay_rate):
   """ Applies an exponential decay to the learning rate.
@@ -111,10 +111,10 @@ def flatten(tensor, outdim=1):
     outdim: The number of dimensions in the result. It defaults to 1.
   Returns:
     The flattened tensor. """
-  if sb.backend_name == "theano":
-    return sb.backend.tensor.flatten(tensor, outdim=outdim)
+  if sg.backend_name == "theano":
+    return sg.backend.tensor.flatten(tensor, outdim=outdim)
 
-  elif sb.backend_name == "tensorflow":
+  elif sg.backend_name == "tensorflow":
     # Tensorflow doesn't actually have a native flattening op, but we can fake
     # it easily.
     shape = tensor.get_shape().as_list()
@@ -122,4 +122,4 @@ def flatten(tensor, outdim=1):
 
     new_shape = [-1] * (outdim - 1) + [new_dim_size]
     logger.debug("Reshaping to: %s" % (new_shape))
-    return sb.backend.reshape(tensor, new_shape)
+    return sg.backend.reshape(tensor, new_shape)

@@ -38,7 +38,8 @@ class FeedforwardNetwork(object):
              self._inputs, self._expected_outputs, self.__trainer_type,
              self.__train_params, self._global_step, self._training,
              self._intermediate_activations,
-             self._patch_separation, self._layers, self.__train_kw_params)
+             self._patch_separation, self._layers, self.__train_kw_params,
+             self._batch_index)
     return state
 
   def __setstate__(self, state):
@@ -47,7 +48,7 @@ class FeedforwardNetwork(object):
     self._expected_outputs, self.__trainer_type, self.__train_params, \
     self._global_step, self._training, \
     self._intermediate_activations, self._patch_separation, self._layers, \
-    self.__train_kw_params = state
+    self.__train_kw_params, self._batch_index = state
 
   def _initialize_variables(self, layers, train, test, batch_size,
                             patch_separation=None):
@@ -58,6 +59,9 @@ class FeedforwardNetwork(object):
       test: Testing set.
       batch_size: Size of each minibatch.
       patch_separation: Distance between each patch of a given image. """
+    # This saver is responsible for saving and loading our training state.
+    self._saver = saver.VariableSaver()
+
     self._layers = layers
 
     self._train_x, self._train_y = train
@@ -514,36 +518,37 @@ class FeedforwardNetwork(object):
     """ Saves the network to a file.
     Args:
       filename: The name of the file to save to. """
-    file_object = open(filename, "wb")
-    pickle.dump(self, file_object, protocol=pickle.HIGHEST_PROTOCOL)
-    file_object.close()
+    self._saver.save(filename)
 
-  @classmethod
-  def load(cls, filename, train, test, batch_size, learning_rate=None,
-           train_layers=None):
-    """ Loads the network from a file.
-    Args:
-      filename: The name of the file to load from.
-      train: The training dataset to use. If this is None, it won't build a
-      training function.
-      test: The testing dataset to use. If this is None, it won't build
-      predictor and tester functions.
-      batch_size: The batch size to use.
-      learning_rate: Allows us to specify a new learning rate for the network.
-      train_layers: List of layers to actually train, the rest will be left
-                    untouched.
-    Returns:
-      The loaded network. """
-    file_object = open(filename, "rb")
-    network = pickle.load(file_object)
-    file_object.close()
+  def load(self, filename):
+    self._saver.load(filename)
 
-    network._batch_size = batch_size
-
-    network.__rebuild_functions(train, test, learning_rate=learning_rate,
-                                train_layers=train_layers)
-
-    return network
+  #@classmethod
+  #def load(cls, filename, train, test, batch_size, learning_rate=None,
+  #         train_layers=None):
+  #  """ Loads the network from a file.
+  #  Args:
+  #    filename: The name of the file to load from.
+  #    train: The training dataset to use. If this is None, it won't build a
+  #    training function.
+  #    test: The testing dataset to use. If this is None, it won't build
+  #    predictor and tester functions.
+  #    batch_size: The batch size to use.
+  #    learning_rate: Allows us to specify a new learning rate for the network.
+  #    train_layers: List of layers to actually train, the rest will be left
+  #                  untouched.
+  #  Returns:
+  #    The loaded network. """
+  #  file_object = open(filename, "rb")
+  #  network = pickle.load(file_object)
+  #  file_object.close()
+  #
+  #  network._batch_size = batch_size
+  #
+  #  network.__rebuild_functions(train, test, learning_rate=learning_rate,
+  #                              train_layers=train_layers)
+  #
+  #  return network
 
   def get_train_x(self):
     """ Returns: The input training image buffer. """

@@ -1,10 +1,10 @@
 import logging
 
-from . import _store_backend as sb
+from . import _store_globals as sg
 from . import optimizer
 
 
-sb.check_backend()
+sg.check_backend()
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +12,6 @@ logger = logging.getLogger(__name__)
 class Runnable(object):
   """ Wraps the Tensorflow Session and Theano Function interfaces into a single
   interface that can be used for both. """
-
-  # The session that will be used with Tensorflow for actually running things.
-  # There is no need to have any more than one of these.
-  _session = None
 
   def __init__(self, inputs, outputs, givens):
     """
@@ -26,7 +22,7 @@ class Runnable(object):
       whose symbolic values will not change for the lifetime of the runnable.
     """
     # graph_outputs is a list of the outputs where everything been converted
-    # to the native sb.backend version.
+    # to the native sg.backend version.
     graph_outputs = []
     for output in outputs:
       if isinstance(output, optimizer._Optimizer):
@@ -35,7 +31,7 @@ class Runnable(object):
       else:
         graph_outputs.append(output)
 
-    if sb.backend_name == "theano":
+    if sg.backend_name == "theano":
       logger.info("Creating new function...")
 
       # Find any Optimizers and compute updates accordingly.
@@ -44,14 +40,14 @@ class Runnable(object):
         if isinstance(output, optimizer._Optimizer):
           updates.extend(output.get_updates())
 
-      self.__function = sb.backend.function(inputs=inputs, outputs=graph_outputs,
+      self.__function = sg.backend.function(inputs=inputs, outputs=graph_outputs,
                                             givens=givens, updates=updates)
 
-    elif sb.backend_name == "tensorflow":
-      if not Runnable._session:
+    elif sg.backend_name == "tensorflow":
+      if not sg.session:
         # We still need to make a global session.
         logger.info("Creating session...")
-        Runnable._session = sb.backend.Session()
+        sg.session = sg.backend.Session()
 
       # We can't do anything right now, so just save everything.
       self.__inputs = inputs
@@ -67,11 +63,11 @@ class Runnable(object):
     Returns:
       The computed output values, in the order that said outputs were specified
       in the contructor. """
-    if sb.backend_name == "theano":
+    if sg.backend_name == "theano":
       # Just run the function.
       return self.__function(*input_values)
 
-    elif sb.backend_name == "tensorflow":
+    elif sg.backend_name == "tensorflow":
       # In Tensorflow, the givens are technically just members of the feed dict
       # that we've specified ahead-of-time.
       feed_dict = self.__givens
@@ -82,7 +78,7 @@ class Runnable(object):
 
       # We have to initialize variables.
       # TODO (danielp): Be smarter about doing this only when we have to.
-      Runnable._session.run(sb.backend.global_variables_initializer())
+      sg.session.run(sg.backend.global_variables_initializer())
 
       # Now, we can just run our session.
-      return Runnable._session.run(self.__outputs, feed_dict=feed_dict)
+      return sg.session.run(self.__outputs, feed_dict=feed_dict)

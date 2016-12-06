@@ -1,9 +1,9 @@
 import logging
 
-from . import _store_backend as sb
+from . import _store_globals as sg
 
 
-sb.check_backend()
+sg.check_backend()
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class _Optimizer(object):
     """ This function is only used by Theano. When a function needs to be
     created, it allows whatever's creating that function to obtain the proper
     updates to use in order for this optimizer to work correctly. """
-    if sb.backend_name == "tensorflow":
+    if sg.backend_name == "tensorflow":
       raise NotImplementedError("'get_updates' is only available with Theano.")
 
     return self._updates
@@ -52,27 +52,27 @@ class GradientDescentOptimizer(_Optimizer):
     weight_decay = kwargs.get("weight_decay", 0)
     params = kwargs.get("params")
 
-    if sb.backend_name == "theano":
+    if sg.backend_name == "theano":
       if not params:
         raise ValueError("Need 'params' argument with Theano.")
 
       # Compute the updates to use.
-      self._updates = sb.theano_utils.momentum_sgd(self._to_optimize, params,
+      self._updates = sg.theano_utils.momentum_sgd(self._to_optimize, params,
                                                    learning_rate, momentum,
                                                    weight_decay)
 
-    elif sb.backend_name == "tensorflow":
+    elif sg.backend_name == "tensorflow":
       # Use the built-in optimizer.
       # TODO (danielp): Implement weight decay in Tensorflow.
-      optimizer = sb.backend.train.MomentumOptimizer(learning_rate, momentum)
+      optimizer = sg.backend.train.MomentumOptimizer(learning_rate, momentum)
       self.__optimizer = optimizer.minimize(self._to_optimize)
 
   def native(self):
     """ See documentation for superclass method. """
-    if sb.backend_name == "theano":
+    if sg.backend_name == "theano":
       # Just return the training cost here, which might be useful.
       return self._to_optimize
-    elif sb.backend_name == "tensorflow":
+    elif sg.backend_name == "tensorflow":
       return self.__optimizer
 
 class RmsPropOptimizer(_Optimizer):
@@ -91,26 +91,26 @@ class RmsPropOptimizer(_Optimizer):
 
     params = kwargs.get("params")
 
-    if sb.backend_name == "theano":
+    if sg.backend_name == "theano":
       if not params:
         raise ValueError("Need 'params' argument with Theano.")
 
       # Compute the updates to use.
       # TODO (danielp): Implement momentum here. Maybe.
-      self._updates = sb.theano_utils.rmsprop(self._to_optimize, params,
+      self._updates = sg.theano_utils.rmsprop(self._to_optimize, params,
                                               learning_rate, decay, shift)
 
-    elif sb.backend_name == "tensorflow":
+    elif sg.backend_name == "tensorflow":
       # Use the built-in optimizer.
-      optimizer = sb.backend.train.RMSPropOptimizer(learning_rate,
+      optimizer = sg.backend.train.RMSPropOptimizer(learning_rate,
                                                     decay=decay,
                                                     epsilon=shift)
       self.__optimizer = optimizer.minimize(self._to_optimize)
 
   def native(self):
     """ See documentation for superclass method. """
-    if sb.backend_name == "theano":
+    if sg.backend_name == "theano":
       # Just return the training cost here, which might be useful.
       return self._to_optimize
-    elif sb.backend_name == "tensorflow":
+    elif sg.backend_name == "tensorflow":
       return self.__optimizer
