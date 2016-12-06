@@ -38,6 +38,12 @@ class DownloaderProcess(multiprocessing.Process):
     while True:
       req_id, synset, number, url, image_shape, patch_shape = \
           self.__command_queue.get()
+      if req_id == -1:
+        # A negative one for the request ID signifies that the system is
+        # exiting.
+        logger.info("Got exit command, stopping downloader process.")
+        return
+
       self.__download_image(req_id, synset, number, url, image_shape,
                             patch_shape)
 
@@ -219,7 +225,36 @@ _command_queue = multiprocessing.Queue(1500)
 # When we read images that belong to the wrong downloader instance, this is
 # where they go.
 _rejected_queue = {}
+# Worker processes.
+_workers = []
+
+def cleanup():
+  """ Stops all downloader processes so the system can exit. Obviously, only
+  call this when you're sure no more downloaders will be created. """
+  logger.info("Cleaning up...")
+
+  # Tell all the processes to exit. We do this by sending download requests with
+  # -1 as the request ID. The other parameters will be ignored. We also need one
+  # command for every process.
+  for i in range(0, len(_workers)):
+    _command_queue.put((-1, None, None, None, None, None))
+
+  # Join everything.
+  will_terminate = False
+  for worker in _workers:
+    if not will_terminate:
+      worker.join(5)
+    else:
+      worker.terminate()
+
+    if worker.is_alive():
+      # Everything got the signal at about the same time, so if something times
+      # out, then we're clear to terminate everything.
+      logger.warning("Join for workers timed out. Terminating...")
+      will_terminate = True
+      worker.terminate()
 
 for i in range(0, WORKER_LIMIT):
   worker = DownloaderProcess(_command_queue, _image_queue)
   worker.start()
+  _workers.append(worker)

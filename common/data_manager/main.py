@@ -38,8 +38,8 @@ def main():
                                              preload_batches=2,
                                              patch_shape=(224, 224))
 
-  for x in range(0, 5):
-    batch = getter.get_random_test_batch()
+  for x in range(0, 1):
+    batch = getter.get_random_train_batch()
 
     print batch[1]
     print len(batch[1])

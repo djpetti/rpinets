@@ -2,6 +2,7 @@ import logging
 
 import cache
 import dataset
+import downloader
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,9 @@ class ImageGetter(object):
     if self.__loaded_datasets:
       logger.info("Saving datasets...")
       self.save_datasets()
+
+    # Stop downloader processes.
+    downloader.cleanup()
 
   def _make_new_datasets(self, train_data, test_data):
     """ Make training and testing datasets.
