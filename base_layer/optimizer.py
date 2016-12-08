@@ -1,6 +1,7 @@
 import logging
 
 from . import _store_globals as sg
+from . import saver
 
 
 sg.check_backend()
@@ -18,6 +19,11 @@ class _Optimizer(object):
     Args:
       to_optimize: The symbolic value to optimize. """
     self._to_optimize = to_optimize
+    # The Optimizer object for Tensorflow.
+    self._tf_optimizer = None
+
+    # Register the optimizer with any savers.
+    saver.VariableSaver.register_optimizer_with_all(self)
 
   def native(self):
     """ Must be implemented by a subclass.
@@ -33,6 +39,26 @@ class _Optimizer(object):
       raise NotImplementedError("'get_updates' is only available with Theano.")
 
     return self._updates
+
+  def get_all_slots(self):
+    """ Gets all the slots for this optimizer.
+    Returns:
+      A list of the slots. """
+    if not self._tf_optimizer:
+      # In this case, we are probably just using Theano, so we don't have to
+      # worry about this.
+      return []
+
+    slots = []
+    for slot_name in self._tf_optimizer.get_slot_names():
+      slot = self._tf_optimizer.get_slot(self._to_optimize, slot_name)
+      if not slot:
+        logger.warning("Not getting slot '%s', because it is None." %
+                       (slot_name))
+        continue
+      slots.append(slot)
+
+    return slots
 
 class GradientDescentOptimizer(_Optimizer):
   """ Optimizes a graph using SGD. """
@@ -64,8 +90,8 @@ class GradientDescentOptimizer(_Optimizer):
     elif sg.backend_name == "tensorflow":
       # Use the built-in optimizer.
       # TODO (danielp): Implement weight decay in Tensorflow.
-      optimizer = sg.backend.train.MomentumOptimizer(learning_rate, momentum)
-      self.__optimizer = optimizer.minimize(self._to_optimize)
+      self._tf_optimizer = sg.backend.train.MomentumOptimizer(learning_rate, momentum)
+      self.__optimizer = self._tf_optimizer.minimize(self._to_optimize)
 
   def native(self):
     """ See documentation for superclass method. """
@@ -102,9 +128,9 @@ class RmsPropOptimizer(_Optimizer):
 
     elif sg.backend_name == "tensorflow":
       # Use the built-in optimizer.
-      optimizer = sg.backend.train.RMSPropOptimizer(learning_rate,
-                                                    decay=decay,
-                                                    epsilon=shift)
+      self._tf_optimizer = sg.backend.train.RMSPropOptimizer(learning_rate,
+                                                             decay=decay,
+                                                             epsilon=shift)
       self.__optimizer = optimizer.minimize(self._to_optimize)
 
   def native(self):

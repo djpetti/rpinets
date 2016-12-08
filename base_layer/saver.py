@@ -6,7 +6,6 @@ import logging
 import os
 
 from . import _store_globals as sg
-from . import runnable
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +29,7 @@ class VariableSaver(object):
 
     # List of variables that are being managed.
     self.__variables = []
+    self.__optimizers = []
 
   def register(self, variable):
     """ Registers a new variable with this saver. """
@@ -37,19 +37,38 @@ class VariableSaver(object):
 
     self.__variables.append(variable)
 
+  def register_optimizer(self, optimizer):
+    """ Optimizers can have built-in variables (Tensorflow calls them "slots")
+    that are not registered by default. This provides a method to register an
+    optimizer, and have it automatically save all these variables.
+    Args:
+      optimizer: The optimizer to register. """
+    self.__optimizers.append(optimizer)
+
   @classmethod
   def register_with_all(cls, variable):
     """ Registers a variable with all savers. """
-    if not sg.savers:
-      print "No registered savers."
     for saver in sg.savers:
       saver.register(variable)
+
+  @classmethod
+  def register_optimizer_with_all(cls, optimizer):
+    """ Registers an optimizer with all savers. """
+    for saver in sg.savers:
+      saver.register_optimizer(optimizer)
 
   def save(self, path):
     """ Saves all registered variables to a file.
     Args:
        path: The prefix of the path to save data to. """
-    logger.debug("Saving %d variables." % (len(self.__variables)))
+    variables = self.__variables
+
+    # One thing we're going to have to do now is extract the actual slots from
+    # all the optimizers.
+    for optimizer in self.__optimizers:
+      variables.extend(optimizer.get_all_slots())
+
+    logger.debug("Saving %d variables." % (len(variables)))
 
     if sg.backend_name == "theano":
       # We're going to mark this as a Theano file to ensure that Tensorflow
@@ -59,12 +78,12 @@ class VariableSaver(object):
       # In Theano, everything is Pickleable, so we can just use that to
       # implement saving.
       save_to = open(path, "wb")
-      pickle.dump(self.__variables, save_to, protocol=pickle.HIGHEST_PROTOCOL)
+      pickle.dump(variables, save_to, protocol=pickle.HIGHEST_PROTOCOL)
       save_to.close()
 
     elif sg.backend_name == "tensorflow":
       # Use the built-in saver class to handle saving.
-      saver = sg.backend.train.Saver(var_list=self.__variables)
+      saver = sg.backend.train.Saver(var_list=variables)
       saver.save(sg.session, path)
 
   def load(self, path):
