@@ -25,7 +25,7 @@ def set_backend(backend):
     _store_globals.backend = theano
 
     # Local theano modules, which require _backend to be set upon importing.
-    from .. theano_layer import utils
+    from .. theano_ext import utils
     _store_globals.theano_utils = utils
 
     # Initialize random number generator.
