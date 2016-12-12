@@ -20,7 +20,7 @@ class _LearningRate(object):
       cycle: The symbolic global step.
     Returns:
       The learning rate to use for this cycle. """
-    return self.__rate
+    return TT.as_tensor_variable(self._rate, name="lr")
 
 class Fixed(_LearningRate):
   """ The simplest type of learning rate. It is just a fixed value. """
