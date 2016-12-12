@@ -254,6 +254,7 @@ class DataManagerLoader(Loader):
     # Start the loader threads.
     self.__test_thread = threading.Thread(target=self.__run_test_loader_thread)
     self.__test_thread.start()
+
     self.__train_thread = threading.Thread(target=self.__run_train_loader_thread)
     self.__train_thread.start()
 
@@ -300,6 +301,9 @@ class DataManagerLoader(Loader):
     logger.info("Joining threads...")
     self.__train_thread.join()
     self.__test_thread.join()
+
+    # Cleanup the image getter.
+    self._image_getter.cleanup()
 
   def _init_image_getter(self):
     """ Initializes the specific ImageGetter that we will use to get images.

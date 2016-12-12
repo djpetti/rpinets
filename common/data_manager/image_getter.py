@@ -58,6 +58,11 @@ class ImageGetter(object):
     self._init_datasets()
 
   def __del__(self):
+    self.cleanup()
+
+  def cleanup(self):
+    """ Cleans up the image getter. This has to get run at some point, so it's
+    good practice to call it, even though it's called by the destructor too. """
     # Save an updated version of our datasets when we exit.
     if self.__loaded_datasets:
       logger.info("Saving datasets...")
