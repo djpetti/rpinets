@@ -270,7 +270,7 @@ class DiskCache(Cache):
     self.__data_file.seek(offset)
     raw_data = self.__data_file.read(size)
     file_bytes = np.asarray(bytearray(raw_data), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, cv2.CV_LOAD_IMAGE_COLOR)
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
     return image
 
@@ -444,7 +444,7 @@ class DiskCache(Cache):
       if (use_only == None or img_id in use_only):
         # OpenCV knows when the image ends, so we don't have to worry about bounding
         # our slice on one side.
-        image = cv2.imdecode(raw_data, cv2.CV_LOAD_IMAGE_COLOR)
+        image = cv2.imdecode(raw_data, cv2.IMREAD_COLOR)
         images[img_id] = image
       else:
         logger.debug("Skipping image: %s" % (img_id))
