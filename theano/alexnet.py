@@ -97,7 +97,7 @@ class AlexNet(LeNetClassifier):
     return top_one_accuracy, top_five_accuracy
 
   def __get_mean_softmax(self, batch_index, patches=10):
-    """ Computes and averages the softmax over a set of batches.
+    """ Computes and averages the softmax over a set of patches.
     Args:
       batch_index: The index of the first batch to use.
       patches: The number of patches to average accross.
