@@ -141,6 +141,7 @@ class AlexNet(LeNetClassifier):
       The predicted labels from the network. """
     mean = self.__get_mean_softmax(batch_index, patches=patches)
 
+    # The highest softmax score is our prediction.
     sort = np.argsort(mean, axis=1)
     top_one = sort[:, -1:]
     return np.transpose(top_one)[0]

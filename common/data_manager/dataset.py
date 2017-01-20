@@ -198,6 +198,22 @@ class _DatasetBase(object):
 
     return self._mem_buffer.get_batch()
 
+  def get_specific_batch(self, images):
+    """ Loads a set of specified images and returns them as a batch.
+    Args:
+      images: The images to load, in the form of (label, name) tuples.
+    Returns:
+      The array of loaded images, a list of all the image labels, and a list of
+      the images that were not found. """
+    logger.info("Getting specific batch.")
+
+    # We can simply bulk-load all the images.
+    loaded, not_found = self._cache.bulk_get(images)
+    for img_id, image in loaded.iteritems():
+      self._buffer_image(image, img_id)
+
+    return self._mem_buffer.get_batch()
+
   def _load_random_images(self, max_images):
     """ Loads a random image from either the cache or the internet. If loading
     from the cache, it will also try to speed up the process by loading "bonus"

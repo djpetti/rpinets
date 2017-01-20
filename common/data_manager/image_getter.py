@@ -53,6 +53,7 @@ class ImageGetter(object):
     self._load_datasets_from = load_datasets_from
 
     self.__loaded_datasets = False
+    self.__cleaned_up = False
 
     # Initialize datasets.
     self._init_datasets()
@@ -63,6 +64,10 @@ class ImageGetter(object):
   def cleanup(self):
     """ Cleans up the image getter. This has to get run at some point, so it's
     good practice to call it, even though it's called by the destructor too. """
+    if self.__cleaned_up:
+      # We already did this. We don't have to do it again.
+      return
+
     # Save an updated version of our datasets when we exit.
     if self.__loaded_datasets:
       logger.info("Saving datasets...")
@@ -70,6 +75,8 @@ class ImageGetter(object):
 
     # Stop downloader processes.
     downloader.cleanup()
+
+    self.__cleaned_up = True
 
   def _make_new_datasets(self, train_data, test_data):
     """ Make training and testing datasets.
@@ -137,6 +144,22 @@ class ImageGetter(object):
       The array of loaded images, and the list of labels. """
     return self._test_set.get_sequential_batch()
 
+  def get_specific_train_batch(self, images):
+    """ Gets a specific training batch.
+    Args:
+      images: The specific images to get.
+    Returns:
+      The array of loaded images, and the list of labels. """
+    return self._train_set.get_specific_batch(images)
+
+  def get_specific_test_batch(self, images):
+    """ Gets a specific testing batch.
+    Args:
+      images: The specific images to get.
+    Returns:
+      The array of loaded images, and the list of labels. """
+    return self._test_set.get_specific_batch(images)
+
   def get_train_set_size(self):
     """
     Returns:
@@ -148,6 +171,17 @@ class ImageGetter(object):
     Returns:
       The number of images in the testing dataset. """
     return len(self._test_set.get_images())
+
+  def get_train_image_names(self):
+    """
+    Returns:
+      The names of the images in the training dataset. """
+    return self._train_set.get_images()
+
+  def get_test_image_names(self):
+    """ Returns:
+      The names of the images in the testing dataset. """
+    return self._test_set.get_images()
 
   def save_datasets(self):
     """ Saves the datasets to the disk. """

@@ -258,6 +258,8 @@ class DataManagerLoader(Loader):
     self.__train_thread = threading.Thread(target=self.__run_train_loader_thread)
     self.__train_thread.start()
 
+    self.__cleaned_up = False
+
   def __del__(self):
     """ Cleanup upon program exit. """
     self.exit_gracefully()
@@ -271,6 +273,10 @@ class DataManagerLoader(Loader):
 
   def exit_gracefully(self):
     """ Stop the threads and exit properly. """
+    if self.__cleaned_up:
+      # We don't need to do this again.
+      return
+
     logger.info("Data loader system is exiting NOW.")
 
     # Signal internal threads that it's time to quit.
@@ -304,6 +310,8 @@ class DataManagerLoader(Loader):
 
     # Cleanup the image getter.
     self._image_getter.cleanup()
+
+    self.__cleaned_up = True
 
   def _init_image_getter(self):
     """ Initializes the specific ImageGetter that we will use to get images.

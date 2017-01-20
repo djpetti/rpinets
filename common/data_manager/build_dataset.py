@@ -73,7 +73,7 @@ def _build_dataset(path, disk_cache, size, offset):
   for label, name, path in dataset_images:
     image_data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if image_data is None:
-      print "WARNING: Failed to load image: '%s'." % (image_path)
+      print "WARNING: Failed to load image: '%s'." % (path)
       continue
 
     # Reshape the image.
