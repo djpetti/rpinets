@@ -198,6 +198,7 @@ class DataManagerLoader(Loader):
     signal.signal(signal.SIGINT, self.__on_signal)
 
     self._buffer_size = batch_size * load_batches
+    logger.debug("Nominal buffer size: %d" % (self._buffer_size))
     # Handle to the actual buffers containing images.
     self.__training_buffer = None
     self.__testing_buffer = None
@@ -252,11 +253,7 @@ class DataManagerLoader(Loader):
     self.__exit_event = threading.Event()
 
     # Start the loader threads.
-    self.__test_thread = threading.Thread(target=self.__run_test_loader_thread)
-    self.__test_thread.start()
-
-    self.__train_thread = threading.Thread(target=self.__run_train_loader_thread)
-    self.__train_thread.start()
+    self._init_loader_threads()
 
     self.__cleaned_up = False
 
@@ -305,8 +302,8 @@ class DataManagerLoader(Loader):
 
     # Wait for the internal threads to join.
     logger.info("Joining threads...")
-    self.__train_thread.join()
-    self.__test_thread.join()
+    self._train_thread.join()
+    self._test_thread.join()
 
     # Cleanup the image getter.
     self._image_getter.cleanup()
@@ -322,6 +319,14 @@ class DataManagerLoader(Loader):
                                  load_datasets_from=self._dataset_location,
                                  patch_shape=self._patch_shape,
                                  patch_flip=self._patch_flip)
+
+  def _init_loader_threads(self):
+    """ Starts the training and testing loader threads. """
+    self._test_thread = threading.Thread(target=self._run_test_loader_thread)
+    self._test_thread.start()
+
+    self._train_thread = threading.Thread(target=self._run_train_loader_thread)
+    self._train_thread.start()
 
   def _load_raw_training_batch(self):
     """ Loads raw image and label data from somewhere.
@@ -393,7 +398,7 @@ class DataManagerLoader(Loader):
     self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
     self.__testing_buffer -= mean
 
-  def __run_train_loader_thread(self):
+  def _run_train_loader_thread(self):
     """ The main function for the thread to load training data. """
     while True:
       # Make sure we don't write over our old batch.
@@ -420,7 +425,7 @@ class DataManagerLoader(Loader):
       if thread_error:
         raise thread_error
 
-  def __run_test_loader_thread(self):
+  def _run_test_loader_thread(self):
     """ The main function for the thread to load training data. """
     while True:
       # Make sure we don't write over our old batch.

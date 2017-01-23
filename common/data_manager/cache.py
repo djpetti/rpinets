@@ -574,7 +574,7 @@ class MemoryBuffer(Cache):
 
     self.__data_in_buffer -= self.__batch_size * self.__num_patches
     if self.__data_in_buffer < 0:
-      raise ValueError("Not enough data in buffer for a complete patch.""")
+      raise ValueError("Not enough data in buffer for a complete batch.""")
 
   def __convert_image_for_buffer(self, image):
     """ Converts a raw image as loaded by OpenCV into a form that is compatible

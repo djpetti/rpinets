@@ -209,6 +209,8 @@ class _DatasetBase(object):
 
     # We can simply bulk-load all the images.
     loaded, not_found = self._cache.bulk_get(images)
+    if not_found:
+      raise ValueError("The following images are not cached: %s" % (not_found))
     for img_id, image in loaded.iteritems():
       self._buffer_image(image, img_id)
 

@@ -96,7 +96,7 @@ class AlexNet(LeNetClassifier):
 
     return top_one_accuracy, top_five_accuracy
 
-  def __get_mean_softmax(self, batch_index, patches=10):
+  def get_mean_softmax(self, batch_index, patches=10):
     """ Computes and averages the softmax over a set of patches.
     Args:
       batch_index: The index of the first batch to use.
@@ -128,7 +128,7 @@ class AlexNet(LeNetClassifier):
       patches: The number of patches to average accross.
     Returns:
       The top-one and top-five accuracy of the network. """
-    mean = self.__get_mean_softmax(batch_index, patches=patches)
+    mean = self.get_mean_softmax(batch_index, patches=patches)
     return self.__accuracy_from_softmax(mean, expected_outputs)
 
   def predict_patched(self, batch_index, patches=10):
@@ -139,7 +139,7 @@ class AlexNet(LeNetClassifier):
       patches: The number of patches to average accross.
     Returns:
       The predicted labels from the network. """
-    mean = self.__get_mean_softmax(batch_index, patches=patches)
+    mean = self.get_mean_softmax(batch_index, patches=patches)
 
     # The highest softmax score is our prediction.
     sort = np.argsort(mean, axis=1)
