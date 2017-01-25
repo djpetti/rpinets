@@ -301,10 +301,7 @@ class DataManagerLoader(Loader):
       pass
 
     # Wait for the internal threads to join.
-    logger.info("Joining threads...")
-    self._train_thread.join()
-    self._test_thread.join()
-
+    self._join_loader_threads()
     # Cleanup the image getter.
     self._image_getter.cleanup()
 
@@ -327,6 +324,13 @@ class DataManagerLoader(Loader):
 
     self._train_thread = threading.Thread(target=self._run_train_loader_thread)
     self._train_thread.start()
+
+  def _join_loader_threads(self):
+    """ Joins the training and testing loader threads. If you override
+    _init_loader_threads(), you should probably override this method too. """
+    logger.info("Joining threads...")
+    self._train_thread.join()
+    self._test_thread.join()
 
   def _load_raw_training_batch(self):
     """ Loads raw image and label data from somewhere.
