@@ -618,7 +618,7 @@ class ImagenetLoader(DataManagerLoader):
 
     super(ImagenetLoader, self).__init__(batch_size, load_batches,
                                          (256, 256, 3), cache_location,
-                                         datatset_location,
+                                         dataset_location,
                                          patch_shape=(244, 244))
 
   def _init_image_getter(self):
