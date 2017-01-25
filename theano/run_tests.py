@@ -7,7 +7,7 @@ def _configure_logging():
   # Configure root logger.
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
-  file_handler = logging.FileHandler("/job_files/run_tests.log")
+  file_handler = logging.FileHandler("run_tests.log")
   file_handler.setLevel(logging.DEBUG)
   stream_handler = logging.StreamHandler()
   stream_handler.setLevel(logging.WARNING)
@@ -79,7 +79,7 @@ def run_mnist_test():
   test_batch_index = 0
 
   while iterations < 2000:
-    if iterations % 500 == 0:
+    if iterations % 100 == 0:
       accuracy = network.test(test_batch_index)
       print("Tensorflow: step %d, testing accuracy %s" % \
             (iterations, accuracy))
@@ -95,9 +95,9 @@ def run_mnist_test():
     train_batch_index += 1
 
     # Wrap indices.
-    if (train_batch_index + 1) * batch_size >= data.get_train_batch_size():
+    if (train_batch_index + 1) * batch_size >= batch_size:
       train_batch_index = 0
-    if (test_batch_index + 1) * batch_size >= data.get_test_batch_size():
+    if (test_batch_index + 1) * batch_size >= batch_size:
       test_batch_index = 0
 
   elapsed = time.time() - start_time
@@ -281,7 +281,7 @@ def evaluate_final_alexnet():
         (average_one, average_five)
 
 def main():
-  elapsed, speed = run_imagenet_test()
+  elapsed, speed = run_mnist_test()
   results = {"imagenet": {"elapsed": elapsed, "speed": speed}}
   print "results=%s" % (json.dumps(results))
 
