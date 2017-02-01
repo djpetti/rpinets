@@ -261,12 +261,9 @@ class FeedforwardNetwork(object):
         self._softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
 
-    # Does an actual prediction.
-    self._prediction_operation = self._build_predictor(self._test_x,
-                                                       self._batch_size)
-    # Evaluates the network's accuracy on the testing data.
-    self._tester = self._build_tester(self._test_x, self._test_y,
-                                      self._batch_size)
+    # Build functions.
+    self.__rebuild_functions((self._train_x, self._train_y),
+                             (self._test_x, self._test_y))
 
   def __make_givens(self, batch_x, batch_y, index, batch_size, training):
     """ Makes the givens dictionary for a training or testing function.
@@ -313,6 +310,11 @@ class FeedforwardNetwork(object):
     if train:
       # Set datasets.
       self._train_x, self._train_y = train
+
+      # Build a tester that uses the training data also, in order to evaluate
+      # overfitting.
+      self._training_tester = self._build_tester(self._train_x, self._train_y,
+                                                 self._batch_size)
 
       # Reconstruct the specified trainer.
       builder = None
@@ -446,7 +448,7 @@ class FeedforwardNetwork(object):
     Args:
       test_x: Testing set inputs.
       test_y: Testing set expected outputs.
-      batch_size: How big out batches are.
+      batch_size: How big our batches are.
     Returns:
       Theano function for evaluating network accuracy. """
     index = TT.lscalar()
@@ -562,6 +564,14 @@ class FeedforwardNetwork(object):
     Returns:
       The testing operation. """
     return self._tester
+
+  @property
+  def test_with_training_data(self):
+    """ Runs a test on a single batch for the network, using the training
+    dataset instead of the testing one, and returns the accuracy.
+    Returns:
+      The testing operation. """
+    return self._training_tester
 
   def save(self, filename):
     """ Saves the network to a file.

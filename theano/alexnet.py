@@ -157,6 +157,18 @@ class AlexNet(LeNetClassifier):
     softmax = super(AlexNet, self).test(batch_index)
     return self.__accuracy_from_softmax(softmax, expected_outputs)
 
+  def test_with_training_data(self, batch_index, expected_outputs):
+    """ A tester that uses the training data instead of the testing data. Since
+    the training data does not have multiple patches, averaging across patches
+    is not an option.
+    Args:
+      batch_index: The index of the batch to use.
+      expected_outputs: A non-symbolic copy of our expected outputs.
+    Returns:
+      The top-one and top-five accuracy of the network. """
+    softmax = super(AlexNet, self).test_with_training_data(batch_index)
+    return self.__accuracy_from_softmax(softmax, expected_outputs)
+
   def l2_norm_backwards(self, index):
     """ A method useful for dreaming. Computes all the top network gradients for
     maximizing the L2 norm of the output layer activations.
