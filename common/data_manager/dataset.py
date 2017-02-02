@@ -280,10 +280,11 @@ class _DatasetBase(object):
       image: The actual image data to store.
       img_id: The ID of the image. """
     # Select a patch.
+    print "Buffering image..."
     if self._patch_shape:
-      patches = data_augmentation.extract_patches(image, self._patch_shape,
-                                                  flip=self._patch_flip)
-      image = patches[random.randint(0, len(patches) - 1)]
+      print "Extracting random patch..."
+      image = data_augmentation.extract_random_patch(image, self._patch_shape,
+                                                     flip=self._patch_flip)
 
     # Add it to the buffer.
     label, name = utils.split_img_id(img_id)

@@ -36,7 +36,7 @@ class DownloaderProcess(multiprocessing.Process):
     logger.debug("Starting downloader process.")
 
     while True:
-      req_id, synset, number, url, image_shape, patch_shape = \
+      req_id, synset, number, url, image_shape, patch_shape, all_patches = \
           self.__command_queue.get()
       if req_id == -1:
         # A negative one for the request ID signifies that the system is
@@ -45,10 +45,10 @@ class DownloaderProcess(multiprocessing.Process):
         return
 
       self.__download_image(req_id, synset, number, url, image_shape,
-                            patch_shape)
+                            patch_shape, all_patches)
 
   def __download_image(self, req_id, synset, number, url, image_shape,
-                       patch_shape):
+                       patch_shape, all_patches):
     """ Downloads a single image.
     Args:
       req_id: The ID of the requesting download manager.
@@ -57,7 +57,8 @@ class DownloaderProcess(multiprocessing.Process):
       url: The image url.
       image_shape: The shape of the downloaded image.
       patch_shape: The shape of the patches to extract. If None, it will not
-                   extract patches. """
+                   extract patches.
+      all_patches: Whether to extract all patches, or just a random one. """
     logger.debug("Downloading image for %d: %s_%s" % (req_id, synset, number))
 
     # Download the image. (The channels in the image shape are irrelevant.)
@@ -70,7 +71,10 @@ class DownloaderProcess(multiprocessing.Process):
     # Extract the patches to send back.
     patches = None
     if patch_shape:
-      patches = data_augmentation.extract_patches(image, patch_shape)
+      if all_patches:
+        patches = data_augmentation.extract_patches(image, patch_shape)
+      else:
+        patches = data_augmentation.extract_random_patch(image, patch_shape)
 
     # Save the image to the queue.
     logger.debug("Sending image for %d: %s_%s" % (req_id, synset, number))
@@ -128,7 +132,7 @@ class DownloadManager(object):
     # Add a new download.
     self.__pending.add((synset, number))
     _command_queue.put((self.__id, synset, number, url, self.__image_shape,
-                        self.__patch_shape))
+                        self.__patch_shape, self.__all_patches))
 
     return True
 
@@ -187,10 +191,10 @@ class DownloadManager(object):
         self.__mem_buffer.add(image, name, synset)
       else:
         if not self.__all_patches:
-          # Choose a random patch.
-          patch = patches[random.randint(0, len(patches) - 1)]
-          self.__mem_buffer.add(patch, name, synset)
+          # We chose a random patch.
+          self.__mem_buffer.add(patches, name, synset)
         else:
+          # We're using all patches.
           self.__mem_buffer.add_patches(patches, name, synset)
 
       # Add it to the disk cache.
@@ -237,7 +241,7 @@ def cleanup():
   # -1 as the request ID. The other parameters will be ignored. We also need one
   # command for every process.
   for i in range(0, len(_workers)):
-    _command_queue.put((-1, None, None, None, None, None))
+    _command_queue.put((-1, None, None, None, None, None, None))
 
   # Join everything.
   will_terminate = False

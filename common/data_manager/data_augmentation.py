@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 
 
@@ -10,7 +12,7 @@ def extract_patches(image, patch_shape, flip=True):
     patch_shape: A two-element tuple containing the size of each patch.
     flip: If this is False, it won't extract horizontal reflections.
   Returns:
-    The five extracted patches. """
+    The five or ten extracted patches. """
   # Get the initial image shape.
   width, height, _ = image.shape
   new_width, new_height = patch_shape
@@ -40,9 +42,36 @@ def extract_patches(image, patch_shape, flip=True):
 
   return ret
 
+def extract_random_patch(image, patch_shape, flip=True):
+  """ Extracts a single patch randomly from an image.
+  Args:
+    image: The input image to extract the patch from.
+    patch_shape: A two-element tuple containing the size of each patch.
+    flip: If this is False, it won't randomly flip the patch.
+  Returns:
+    The single extracted patch. """
+  # Get the intial image shape.
+  width, height, _ = image.shape
+  new_width, new_height = patch_shape
+
+  # Pick a random location for the top left corner of the patch.
+  max_x = width - new_width
+  max_y = height - new_height
+  corner_x = random.randint(0, max_x)
+  corner_y = random.randint(0, max_y)
+
+  crop = image[corner_x:(corner_x + new_width),
+               corner_y:(corner_y + new_height)]
+
+  if (flip and random.randint(0, 1)):
+    # We may randomly flip it horizontally.
+    crop = np.fliplr(crop)
+
+  return crop
+
 def pca(image):
   """ Performs Principle Component Analysis on input image and adjusts it
-  randomly, simluating different lighting intensities.
+  randomly, simulating different lighting intensities.
   Args:
     image: Input image matrix.
   Return:
