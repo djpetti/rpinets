@@ -108,12 +108,10 @@ class ImagenetGetter(image_getter.ImageGetter):
 
       # We might have deleted stuff since we last saved it, so we want to do
       # some pruning.
-      if self._test_set.prune_images(self._synsets):
-        logger.info("Updating test database file...")
-        self._test_set.save_images()
-      if self._train_set.prune_images(self._synsets):
-        logger.info("Updating train database file...")
-        self._train_set.save_images()
+      if (self._test_set.prune_images(self._synsets) or \
+          self._train_set.prune_images(self._synsets)):
+        logger.info("Updating dataset files...")
+        self.save_datasets()
 
     else:
       train, test = self.__split_train_test_images(self._test_percentage)

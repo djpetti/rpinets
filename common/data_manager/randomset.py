@@ -5,13 +5,16 @@ class RandomSet(object):
   """ A special set that sacrifices memory but allows for O(1) acquisition of
   random elements. """
 
-  def __init__(self):
-    # Holds an ordered version of the data for easy random picking.
-    self.__data = []
-    # Maps data in the set to indices in __data.
-    self.__data_to_indices = {}
+  def __init__(self, initial_data=None):
+    if initial_data:
+      self.__make_with_data(initial_data)
+    else:
+      # Holds an ordered version of the data for easy random picking.
+      self.__data = []
+      # Maps data in the set to indices in __data.
+      self.__data_to_indices = {}
 
-  def __init__(self, initial_data):
+  def __make_with_data(self, initial_data):
     """ Initializes the set from some initial data.
     Args:
       initial_data: A list of the initial data. """

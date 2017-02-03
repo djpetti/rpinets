@@ -181,9 +181,6 @@ class LeNetClassifier(FeedforwardNetwork):
         self._softmax_cross_entropy_with_logits(self._layer_stack,
                                                 self._expected_outputs))
 
-    # Does an actual prediction.
-    self._prediction_operation = self._build_predictor(self._test_x,
-                                                       self._batch_size)
-    # Evaluates the network's accuracy on the testing data.
-    self._tester = self._build_tester(self._test_x, self._test_y,
-                                      self._batch_size)
+    # Build functions.
+    self._rebuild_functions((self._train_x, self._train_y),
+                            (self._test_x, self._test_y))

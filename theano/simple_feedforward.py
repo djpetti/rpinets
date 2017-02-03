@@ -240,7 +240,7 @@ class FeedforwardNetwork(object):
     logger.debug("Rebuilding functions...")
     train = (self._train_x, self._train_y)
     test = (self._test_x, self._test_y)
-    self.__rebuild_functions(train, test)
+    self._rebuild_functions(train, test)
 
   def __build_model(self, outputs):
     """ Actually constructs the graph for this model.
@@ -262,7 +262,7 @@ class FeedforwardNetwork(object):
                                                 self._expected_outputs))
 
     # Build functions.
-    self.__rebuild_functions((self._train_x, self._train_y),
+    self._rebuild_functions((self._train_x, self._train_y),
                              (self._test_x, self._test_y))
 
   def __make_givens(self, batch_x, batch_y, index, batch_size, training):
@@ -286,7 +286,7 @@ class FeedforwardNetwork(object):
 
     return givens
 
-  def __rebuild_functions(self, train, test, learning_rate=None,
+  def _rebuild_functions(self, train, test, learning_rate=None,
                           train_layers=None):
     """ Reconstruct functions from a saved network.
     Args:
@@ -603,7 +603,7 @@ class FeedforwardNetwork(object):
 
     network._batch_size = batch_size
 
-    network.__rebuild_functions(train, test, learning_rate=learning_rate,
+    network._rebuild_functions(train, test, learning_rate=learning_rate,
                                 train_layers=train_layers)
 
     return network
