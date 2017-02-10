@@ -3,7 +3,7 @@
 
 # This forks processes, so we want to import it as soon as possible, when there
 # is as little memory as possible being used.
-from common.data_manager import cache, image_getter, imagenet
+from . import cache, image_getter, imagenet
 
 import cPickle as pickle
 import gzip
@@ -20,9 +20,6 @@ import cv2
 
 import numpy as np
 
-import theano
-import theano.tensor as TT
-
 
 MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
 MNIST_FILE = "mnist.pkl.gz"
@@ -35,61 +32,25 @@ class Loader(object):
   """ Generic superclass for anything that loads input data. """
 
   def __init__(self):
-    self._shared_train_set = [None, None]
-    self._shared_test_set = [None, None]
-    self._shared_valid_set = [None, None]
+    # Handle to the actual buffers containing images.
+    self._training_buffer = None
+    self._testing_buffer = None
+    self._training_labels = None
+    self._testing_labels = None
+    self._training_names = None
+    self._testing_names = None
 
     self._train_set_size = None
     self._test_set_size = None
     self._valid_set_size = None
 
-  def _shared_dataset(self, data, shared_set):
-    """ Function that loads the dataset into shared variables
+  def generate_train_set(self):
+    """ Generator that yields training set data in batches. """
+    raise NotImplementedError("This method must be overidden by a subclass.")
 
-    The reason we store our dataset in shared variables is to allow
-    Theano to copy it into the GPU memory (when code is run on GPU).
-    Since copying data into the GPU is slow, copying a minibatch everytime
-    is needed (the default behaviour if the data is not in a shared
-    variable) would lead to a large decrease in performance.
-
-    Args:
-      data: The data to load.
-      shared_set: The shared variables to load it into.
-    Returns:
-      Symbolic shared variable containing the dataset.
-    """
-    data_x, data_y = data
-    data_y = np.asarray(data_y)
-    if shared_set == [None, None]:
-      # The shared variables weren't initialized yet.
-      shared_set[0] = theano.shared(data_x.astype(theano.config.floatX))
-      shared_set[1] = theano.shared(data_y.astype(theano.config.floatX))
-    else:
-      # They are initialized, we just need to set new values.
-      shared_set[0].set_value(data_x.astype(theano.config.floatX))
-      shared_set[1].set_value(data_y.astype(theano.config.floatX))
-
-  def __cast_dataset(self, dataset):
-    """ To store it on the GPU, it needs to be of type float32, however, the
-    labels need to be type int, so we use this little casting hack.
-    Args:
-      dataset: The dataset to operate on.
-    Returns:
-      A version of dataset with the labels casted. """
-    images, labels = dataset
-    return (images, TT.cast(labels, "int32"))
-
-  def get_train_set(self):
-    """ Returns: The training set. """
-    return self.__cast_dataset(self._shared_train_set)
-
-  def get_test_set(self):
-    """ Returns: The testing set. """
-    return self.__cast_dataset(self._shared_test_set)
-
-  def get_valid_set(self):
-    """ Returns: The validation set. """
-    return self.__cast_dataset(self._shared_valid_set)
+  def generate_test_set(self):
+    """ Generator that yields testing set data in batches. """
+    raise NotImplementedError("This method must be overidden by a subclass.")
 
   def get_train_batch_size(self):
     """ Returns: The size of the training batches. """
@@ -98,74 +59,6 @@ class Loader(object):
   def get_test_batch_size(self):
     """ Returns: The size of the testing batches. """
     return self._test_batch_size
-
-  def get_valid_batch_size(self):
-    """ Returns: The size of the validation batches. """
-    return self._valid_batch_size
-
-
-class Mnist(Loader):
-  """ Deals with the MNIST dataset.
-  Args:
-    use_4d: If True, it will reshape the inputs to 4D tensors for use in a CNN.
-            Defaults to False. """
-  def __init__(self, use_4d=False):
-    super(Mnist, self).__init__()
-
-    self.__load(use_4d)
-
-  def __download_mnist(self):
-    """ Downloads the mnist dataset from MNIST_URL. """
-    logger.info("Downloading MNIST data...")
-    response = urllib2.urlopen(MNIST_URL)
-    data = response.read()
-
-    # Save it to a file.
-    mnist_file = open(MNIST_FILE, "w")
-    mnist_file.write(data)
-    mnist_file.close()
-
-  def __load(self, use_4d):
-    """ Loads mnist dataset from the disk, or downloads it first if it isn't
-    present.
-    Args:
-      use_4d: If True, it will reshape the inputs to a 4D tensor for use in a
-              CNN.
-    Returns:
-      A training set, testing set, and a validation set. """
-    if not os.path.exists(MNIST_FILE):
-      # Download it first.
-      self.__download_mnist()
-
-    logger.info("Loading MNIST from disk...")
-    mnist_file = gzip.open(MNIST_FILE, "rb")
-    train_set, test_set, valid_set = pickle.load(mnist_file)
-    mnist_file.close()
-
-    # Reshape if we need to.
-    if use_4d:
-      logger.debug("Note: Using 4D tensor representation. ")
-
-      train_x, train_y = train_set
-      test_x, test_y = test_set
-      valid_x, valid_y = valid_set
-
-      train_x = train_x.reshape(-1, 1, 28, 28)
-      test_x = test_x.reshape(-1, 1, 28, 28)
-      valid_x = valid_x.reshape(-1, 1, 28, 28)
-
-      train_set = (train_x, train_y)
-      test_set = (test_x, test_y)
-      valid_set = (valid_x, valid_y)
-
-    self._train_set_size = train_set[1].shape[0]
-    self._test_set_size = test_set[1].shape[0]
-    self._valid_set_size = valid_set[1].shape[0]
-
-    # Copy to shared variables.
-    self._shared_dataset(train_set, self._shared_train_set)
-    self._shared_dataset(test_set, self._shared_test_set)
-    self._shared_dataset(valid_set, self._shared_valid_set)
 
 
 class DataManagerLoader(Loader):
@@ -199,11 +92,6 @@ class DataManagerLoader(Loader):
 
     self._buffer_size = batch_size * load_batches
     logger.debug("Nominal buffer size: %d" % (self._buffer_size))
-    # Handle to the actual buffers containing images.
-    self.__training_buffer = None
-    self.__testing_buffer = None
-    self.__training_labels = None
-    self.__testing_labels = None
 
     self._train_batch_size = self._buffer_size
     if not self._patch_shape:
@@ -245,8 +133,8 @@ class DataManagerLoader(Loader):
     self.__reverse_labels = {}
     self.__current_label = 0
     # Image ID values for the loaded images.
-    self.__training_names = []
-    self.__testing_names = []
+    self._training_names = []
+    self._testing_names = []
 
     # This is an event that signals to the internal threads that it's time to
     # exit.
@@ -368,39 +256,37 @@ class DataManagerLoader(Loader):
 
   def __load_next_training_batch(self):
     """ Loads the next batch of training data from the Imagenet backend. """
-    self.__training_buffer, labels, names = self._load_raw_training_batch()
+    self._training_buffer, labels, names = self._load_raw_training_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    mean = np.mean(self.__training_buffer).astype(theano.config.floatX)
+    mean = np.mean(self._training_buffer).astype("uint8")
     logger.debug("Training mean: %f" % mean)
 
     self.__train_cpu_lock.acquire()
 
-    self.__training_names = names
+    self._training_names = names
     # Convert labels.
-    self.__training_labels = self.__convert_labels_to_ints(labels)
+    self._training_labels = self.__convert_labels_to_ints(labels)
 
     self.__train_cpu_lock.release()
 
-    self.__training_buffer = self.__training_buffer.astype(theano.config.floatX)
-    self.__training_buffer -= mean
+    self._training_buffer -= mean
 
   def __load_next_testing_batch(self):
     """ Loads the next batch of testing data from the Imagenet backend. """
-    self.__testing_buffer, labels, names = self._load_raw_testing_batch()
+    self._testing_buffer, labels, names = self._load_raw_testing_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    mean = np.mean(self.__testing_buffer).astype(theano.config.floatX)
+    mean = np.mean(self._testing_buffer).astype("uint8")
     logger.debug("Testing mean: %f" % mean)
 
     self.__test_cpu_lock.acquire()
 
-    self.__testing_names = names
+    self._testing_names = names
     # Convert labels.
-    self.__testing_labels = self.__convert_labels_to_ints(labels)
+    self._testing_labels = self.__convert_labels_to_ints(labels)
 
     self.__test_cpu_lock.release()
 
-    self.__testing_buffer = self.__testing_buffer.astype(theano.config.floatX)
-    self.__testing_buffer -= mean
+    self._testing_buffer -= mean
 
   def _run_train_loader_thread(self):
     """ The main function for the thread to load training data. """
@@ -456,70 +342,42 @@ class DataManagerLoader(Loader):
       if thread_error:
         raise thread_error
 
-  def __swap_in_training_data(self):
-    """ Takes training data buffered into system memory and loads it into VRAM
-    for immediate use. """
-    logger.info("Waiting for new training data to be ready...")
-    self.__train_buffer_full.acquire()
-    logger.info("Loading new training dataset into VRAM...")
+  def generate_train_set(self):
+    """ Generator that yields training set data in batches. """
+    while True:
+      logger.info("Waiting for new training data to be ready...")
+      self.__train_buffer_full.acquire()
+      logger.info("Got raw training data.")
 
-    self._shared_dataset((self.__training_buffer, self.__training_labels),
-                         self._shared_train_set)
+      # Create a converted copy of the training data.
+      training_buffer = self._training_buffer.astype("float32")
+      labels = self._training_labels[:]
+      # Allow it to load another batch.
+      self.__train_buffer_empty.release()
 
-    # Allow it to load another batch.
-    self.__train_buffer_empty.release()
+      yield (training_buffer, labels)
 
-  def __swap_in_testing_data(self):
-    """ Takes testing data buffered into system memory and loads it into VRAM
-    for immediate use. """
-    logger.info("Waiting for new testing data to be ready...")
-    self.__test_buffer_full.acquire()
-    logger.info("Loading new testing data into VRAM...")
+  def generate_test_set(self):
+    """ Generator that yields testing set data in batches. """
+    while True:
+      logger.info("Waiting for new testing data to be ready...")
+      self.__test_buffer_full.acquire()
+      logger.info("Got raw testing data.")
 
-    self._shared_dataset((self.__testing_buffer, self.__testing_labels),
-                         self._shared_test_set)
+      # Create a converted copy of the testing data.
+      testing_buffer = self._testing_buffer.astype("float32")
+      labels = self._testing_labels[:]
+      # Allow it to load another batch.
+      self.__test_buffer_empty.release()
 
-    # Allow it to load another batch.
-    self.__test_buffer_empty.release()
-
-  def get_train_set(self):
-    # Load a new set for it.
-    self.__swap_in_training_data()
-
-    return super(DataManagerLoader, self).get_train_set()
-
-  def get_test_set(self):
-    # Load a new set for it.
-    self.__swap_in_testing_data()
-
-    return super(DataManagerLoader, self).get_test_set()
-
-  def get_non_shared_test_set(self):
-    """
-    Returns:
-      A non-shared version of the test set, useful for AlexNet. """
-    self.__test_cpu_lock.acquire()
-    labels = self.__testing_labels[:]
-    self.__test_cpu_lock.release()
-
-    return labels
-
-  def get_non_shared_train_set(self):
-    """
-    Returns:
-      A non-shared version of the train set. """
-    self.__train_cpu_lock.acquire()
-    labels = self.__training_labels[:]
-    self.__train_cpu_lock.release()
-
-    return labels
+      yield (testing_buffer, labels)
 
   def get_test_names(self):
     """
     Returns:
       A list of the image names of the loaded images for the test set. """
     self.__test_cpu_lock.acquire()
-    names = self.__testing_names[:]
+    names = self._testing_names[:]
     self.__test_cpu_lock.release()
 
     return names
@@ -529,7 +387,7 @@ class DataManagerLoader(Loader):
     Returns:
       A list of the image names of the loaded images for the train set. """
     self.__train_cpu_lock.acquire()
-    names = self.__training_names[:]
+    names = self._training_names[:]
     self.__train_cpu_lock.release()
 
     return names

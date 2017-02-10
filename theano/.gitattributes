@@ -1,2 +1,0 @@
-trained/alexnet.pkl filter=lfs diff=lfs merge=lfs -text
-trained/synsets.pkl filter=lfs diff=lfs merge=lfs -text
