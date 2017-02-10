@@ -18,7 +18,9 @@ class ImageGetter(object):
     Args:
       cache_location: Where to cache downloaded images. Will be created if it
       doesn't exist.
-      batch_size: The size of each batch to load.
+      batch_size: The size of each batch to load. It can optionally be a
+                  two-element tuple, which specifies sizes for training and
+                  testing batches, respectively.
       image_shape: A three-element tuple containing the x and y size of the raw
                    images that will be handled, and the number of channels.
       preload_batches: The number of batches that will be preloaded. Increasing
@@ -42,7 +44,12 @@ class ImageGetter(object):
           "Expected patch shape of form (x size, y size).")
 
     self._cache = cache.DiskCache(cache_location, 50000000000)
-    self._batch_size = batch_size
+    if hasattr(batch_size, "__getitem__"):
+      # The user passed in a tuple.
+      self._train_batch_size, self._test_batch_size = batch_size
+    else:
+      # One global batch size.
+      self._train_batch_size = self._test_batch_size = batch_size
 
     self._image_shape = image_shape
     self._patch_shape = patch_shape
@@ -84,7 +91,7 @@ class ImageGetter(object):
       train_data: Data for training set.
       test_data: Data for testing set. """
     self._train_set = dataset.Dataset(train_data, self._cache,
-                                      self._batch_size,
+                                      self._train_batch_size,
                                       self._image_shape,
                                       preload_batches=self._preload_batches,
                                       patch_shape=self._patch_shape,
@@ -92,7 +99,7 @@ class ImageGetter(object):
     if self._patch_shape:
       # Use all the patches in the test set.
       self._test_set = dataset.PatchedDataset(test_data, self._cache,
-                                              self._batch_size,
+                                              self._test_batch_size,
                                               self._image_shape,
                                               preload_batches= \
                                                   self._preload_batches,
@@ -101,7 +108,7 @@ class ImageGetter(object):
     else:
       # No patches.
       self._test_set = dataset.Dataset(test_data, self._cache,
-                                       self._batch_size, self._image_shape,
+                                       self._test_batch_size, self._image_shape,
                                        preload_batches=self._preload_batches,
                                        patch_shape=self._patch_shape,
                                        patch_flip=self._patch_flip)

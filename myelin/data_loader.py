@@ -6,12 +6,10 @@
 from . import cache, image_getter, imagenet
 
 import cPickle as pickle
-import gzip
 import json
 import logging
 import os
 import random
-import urllib2
 import signal
 import sys
 import threading
@@ -20,9 +18,6 @@ import cv2
 
 import numpy as np
 
-
-MNIST_URL = "http://deeplearning.net/data/mnist/mnist.pkl.gz"
-MNIST_FILE = "mnist.pkl.gz"
 
 
 logger = logging.getLogger(__name__)
@@ -44,12 +39,12 @@ class Loader(object):
     self._test_set_size = None
     self._valid_set_size = None
 
-  def generate_train_set(self):
-    """ Generator that yields training set data in batches. """
+  def get_train_set(self):
+    """ Gets the next batch of training data. """
     raise NotImplementedError("This method must be overidden by a subclass.")
 
-  def generate_test_set(self):
-    """ Generator that yields testing set data in batches. """
+  def get_test_set(self):
+    """ Gets the next set of testing data. """
     raise NotImplementedError("This method must be overidden by a subclass.")
 
   def get_train_batch_size(self):
@@ -90,6 +85,7 @@ class DataManagerLoader(Loader):
     signal.signal(signal.SIGTERM, self.__on_signal)
     signal.signal(signal.SIGINT, self.__on_signal)
 
+    self._batch_size = batch_size
     self._buffer_size = batch_size * load_batches
     logger.debug("Nominal buffer size: %d" % (self._buffer_size))
 
@@ -198,8 +194,13 @@ class DataManagerLoader(Loader):
   def _init_image_getter(self):
     """ Initializes the specific ImageGetter that we will use to get images.
     This can be overriden by subclasses to add specific functionality. """
+    # We don't want to load multiple batches for testing data, because this
+    # generally requires a massive amount of memory, and provides minimal
+    # performance benefits.
+    batch_sizes = (self._buffer_size, self._batch_size)
+
     self._image_getter = \
-        image_getter.ImageGetter(self._cache_location, self._buffer_size,
+        image_getter.ImageGetter(self._cache_location, batch_sizes,
                                  self._image_shape, preload_batches=2,
                                  load_datasets_from=self._dataset_location,
                                  patch_shape=self._patch_shape,
@@ -342,35 +343,33 @@ class DataManagerLoader(Loader):
       if thread_error:
         raise thread_error
 
-  def generate_train_set(self):
-    """ Generator that yields training set data in batches. """
-    while True:
-      logger.info("Waiting for new training data to be ready...")
-      self.__train_buffer_full.acquire()
-      logger.info("Got raw training data.")
+  def get_train_set(self):
+    """ Gets the next batch of training data. """
+    logger.info("Waiting for new training data to be ready...")
+    self.__train_buffer_full.acquire()
+    logger.info("Got raw training data.")
 
-      # Create a converted copy of the training data.
-      training_buffer = self._training_buffer.astype("float32")
-      labels = self._training_labels[:]
-      # Allow it to load another batch.
-      self.__train_buffer_empty.release()
+    # Create a converted copy of the training data.
+    training_buffer = self._training_buffer.astype("float32")
+    labels = self._training_labels[:]
+    # Allow it to load another batch.
+    self.__train_buffer_empty.release()
 
-      yield (training_buffer, labels)
+    return (training_buffer, labels)
 
-  def generate_test_set(self):
-    """ Generator that yields testing set data in batches. """
-    while True:
-      logger.info("Waiting for new testing data to be ready...")
-      self.__test_buffer_full.acquire()
-      logger.info("Got raw testing data.")
+  def get_test_set(self):
+    """ Gets the next batch of testing data. """
+    logger.info("Waiting for new testing data to be ready...")
+    self.__test_buffer_full.acquire()
+    logger.info("Got raw testing data.")
 
-      # Create a converted copy of the testing data.
-      testing_buffer = self._testing_buffer.astype("float32")
-      labels = self._testing_labels[:]
-      # Allow it to load another batch.
-      self.__test_buffer_empty.release()
+    # Create a converted copy of the testing data.
+    testing_buffer = self._testing_buffer.astype("float32")
+    labels = self._testing_labels[:]
+    # Allow it to load another batch.
+    self.__test_buffer_empty.release()
 
-      yield (testing_buffer, labels)
+    return (testing_buffer, labels)
 
   def get_test_names(self):
     """
@@ -482,10 +481,15 @@ class ImagenetLoader(DataManagerLoader):
   def _init_image_getter(self):
     """ Initializes the specific ImageGetter that we will use to get images.
     """
+    # We don't want to load multiple batches for testing data, because this
+    # generally requires a massive amount of memory, and provides minimal
+    # performance benefits.
+    batch_sizes = (self._buffer_size, self._batch_size)
+
     self._image_getter = \
         imagenet.SynsetFileImagenetGetter( \
             self.__synset_file, self.__synset_location, self._cache_location,
-            self._buffer_size, self._image_shape, preload_batches=2,
+            batch_sizes, self._image_shape, preload_batches=2,
             load_datasets_from=self._dataset_location,
             patch_shape=self._patch_shape)
 
