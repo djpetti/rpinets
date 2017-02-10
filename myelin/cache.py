@@ -522,7 +522,7 @@ class MemoryBuffer(Cache):
     # This will be are underlying storage for the cache.
     self.__channels = channels
     image_x, image_y = self.__image_shape
-    shape = (self.__num_images, self.__channels, image_x, image_y)
+    shape = (self.__num_images, image_x, image_y, self.__channels)
     logger.debug("MemBuffer: Creating array of shape: %s" % (str(shape)))
     self.__storage = np.empty(shape, dtype="uint8")
 
@@ -591,9 +591,7 @@ class MemoryBuffer(Cache):
       # the channels, so we have to add it.
       image = np.expand_dims(image, 2)
 
-    # Change the dimension order to make it compatible with the underlying
-    # storage.
-    return np.transpose(image, (2, 0, 1))
+    return image
 
   def add(self, image, name, label):
     """ Adds a new image to the buffer.
