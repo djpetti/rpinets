@@ -211,6 +211,14 @@ class FeedforwardNetwork(object):
     if replace_with:
       self._layers = self._layers[:-len(replace_with)]
 
+    # Remove any layers that we are not going to replace from the replacement
+    # list.
+    replace_with_no_empty = []
+    for layer in replace_with:
+      if layer:
+        replace_with_no_empty.append(layer)
+    replace_with = replace_with_no_empty
+
     # We're going to also have to redo the layer above, so it can interface with
     # the new ones.
     interface_layer_specs = self._layers[-1]
