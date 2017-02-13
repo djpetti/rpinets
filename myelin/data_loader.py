@@ -86,6 +86,7 @@ class DataManagerLoader(Loader):
     signal.signal(signal.SIGINT, self.__on_signal)
 
     self._batch_size = batch_size
+    self._load_batches = load_batches
     self._buffer_size = batch_size * load_batches
     logger.debug("Nominal buffer size: %d" % (self._buffer_size))
 
@@ -365,7 +366,8 @@ class DataManagerLoader(Loader):
 
     # Create a converted copy of the testing data.
     testing_buffer = self._testing_buffer.astype("float32")
-    labels = self._testing_labels[:]
+    # Keras wants all ten copies.
+    labels = np.tile(self._testing_labels, 10)
     # Allow it to load another batch.
     self.__test_buffer_empty.release()
 
@@ -476,7 +478,7 @@ class ImagenetLoader(DataManagerLoader):
     super(ImagenetLoader, self).__init__(batch_size, load_batches,
                                          (256, 256, 3), cache_location,
                                          dataset_location,
-                                         patch_shape=(244, 244))
+                                         patch_shape=(224, 224))
 
   def _init_image_getter(self):
     """ Initializes the specific ImageGetter that we will use to get images.
