@@ -39,6 +39,9 @@ class Loader(object):
     self._test_set_size = None
     self._valid_set_size = None
 
+    self._training_buffer_mean = 0
+    self._testing_buffer_mean = 0
+
   def get_train_set(self):
     """ Gets the next batch of training data. """
     raise NotImplementedError("This method must be overidden by a subclass.")
@@ -260,8 +263,9 @@ class DataManagerLoader(Loader):
     """ Loads the next batch of training data from the Imagenet backend. """
     self._training_buffer, labels, names = self._load_raw_training_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    mean = np.mean(self._training_buffer).astype("uint8")
-    logger.debug("Training mean: %f" % mean)
+    self._training_buffer_mean = \
+        np.mean(self._training_buffer).astype("float32")
+    logger.debug("Training mean: %f" % (self._training_buffer_mean))
 
     self.__train_cpu_lock.acquire()
 
@@ -271,14 +275,13 @@ class DataManagerLoader(Loader):
 
     self.__train_cpu_lock.release()
 
-    self._training_buffer -= mean
-
   def __load_next_testing_batch(self):
     """ Loads the next batch of testing data from the Imagenet backend. """
     self._testing_buffer, labels, names = self._load_raw_testing_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    mean = np.mean(self._testing_buffer).astype("uint8")
-    logger.debug("Testing mean: %f" % mean)
+    self._testing_buffer_mean = \
+        np.mean(self._testing_buffer).astype("float32")
+    logger.debug("Testing mean: %f" % (self._testing_buffer_mean))
 
     self.__test_cpu_lock.acquire()
 
@@ -287,8 +290,6 @@ class DataManagerLoader(Loader):
     self._testing_labels = self.__convert_labels_to_ints(labels)
 
     self.__test_cpu_lock.release()
-
-    self._testing_buffer -= mean
 
   def _run_train_loader_thread(self):
     """ The main function for the thread to load training data. """
@@ -352,6 +353,7 @@ class DataManagerLoader(Loader):
 
     # Create a converted copy of the training data.
     training_buffer = self._training_buffer.astype("float32")
+    training_buffer -= self._training_buffer_mean
     labels = self._training_labels[:]
     # Allow it to load another batch.
     self.__train_buffer_empty.release()
@@ -366,6 +368,7 @@ class DataManagerLoader(Loader):
 
     # Create a converted copy of the testing data.
     testing_buffer = self._testing_buffer.astype("float32")
+    testing_buffer -= self._testing_buffer_mean
     # Keras wants all ten copies.
     labels = np.tile(self._testing_labels, 10)
     # Allow it to load another batch.
