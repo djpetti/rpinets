@@ -33,33 +33,16 @@ def _process_label(label, path, image_list):
     image_path = os.path.join(label_path, image)
     image_list.append((label, image, image_path))
 
-def _build_dataset(path, disk_cache, size, offset):
+def _build_dataset(dataset_images, disk_cache, size, offset):
   """ Builds a new dataset, and adds images to the disk cache.
   Args:
-    path: The path to the images, which should be separated by folder into
-          categories.
+    dataset_images: The images to include in the dataset. These should be tuples
+                    of the label, image name, and full image path.
     disk_cache: The DiskCache to add loaded images to.
     size: The x and y size of each image in the dataset.
     offset: The x and y offset to use when resizing each image.
   Returns:
     dataset: The dataset that was built from the data. """
-  print "Building dataset from images at %s..." % (path)
-
-  if not os.path.exists(path):
-    print "ERROR: I tried my best, but I couldn't find '%s'." % (path)
-    print "I'm really sorry, old chap."
-    sys.exit(1)
-
-  dataset_images = []
-  for label in os.listdir(path):
-    label_path = os.path.join(path, label)
-    if not os.path.isdir(label_path):
-      print "WARNING: Skipping extraneous item: '%s'" % (label_path)
-      continue
-
-    # Read the contents of the directory.
-    _process_label(label, path, dataset_images)
-
   # Shuffle the images, and load them into the cache randomly. This is so that
   # contiguous loading from the cache actually works.
   print "Building image cache..."
@@ -100,23 +83,81 @@ def _build_dataset(path, disk_cache, size, offset):
   data = dataset.Dataset(dataset_entries, disk_cache, 0, (0, 0, 0))
   return data
 
-def convert_dataset(location, size, output, offset=(0, 0)):
+def collect_dataset_images(path):
+  """ Collects two lists of the images in the training and testing sets.
+  Args:
+    path: The location of the dataset.
+  Returns: A list of the images in the dataset. """
+  print "Building dataset from images at %s..." % (path)
+
+  if not os.path.exists(path):
+    print "ERROR: I tried my best, but I couldn't find '%s'." % (path)
+    print "I'm really sorry, old chap."
+    sys.exit(1)
+
+  dataset_images = []
+  for label in os.listdir(path):
+    label_path = os.path.join(path, label)
+    if not os.path.isdir(label_path):
+      print "WARNING: Skipping extraneous item: '%s'" % (label_path)
+      continue
+
+    # Read the contents of the directory.
+    _process_label(label, path, dataset_images)
+
+  return dataset_images
+
+def divide_sets(path, test_fraction=0.1):
+  """ Divides a set of images into a training set and testing set.
+  Args:
+    path: The path to the image directory. This should contain folders for
+              each label.
+    test_fraction: What fraction of the images should be used for a test set.
+  Returns: The list of training images, and the list of testing images.
+  """
+  # First, we'll load everything, and then split it later.
+  all_images = collect_dataset_images(path)
+
+  print "Generating new train/test split."
+
+  # Split everything.
+  train_images = []
+  test_images = []
+  for image in all_images:
+    if random.random() <= test_fraction:
+      test_images.append(image)
+    else:
+      train_images.append(image)
+
+  return (train_images, test_images)
+
+def convert_dataset(location, size, output, do_split=False, offset=(0, 0)):
   """ Converts a dataset to a format that's usable by data_manager.
   Args:
     location: The location of the dataset to convert.
     size: The x and y sizes of each image in the dataset.
     output: The location to write output files to.
+    do_split: Whether to generate a new train/test split or use an existing one.
     offset: Optional offset to use for width and height when resizing the image.
   """
   # The conversion works by reading all the images and adding them to a
   # DiskCache.
   disk_cache = cache.DiskCache(output)
 
-  # Individual categories are contained in the train and test directories.
-  train_path = os.path.join(location, "train")
-  test_path = os.path.join(location, "test")
-  train_set = _build_dataset(train_path, disk_cache, size, offset)
-  test_set = _build_dataset(test_path, disk_cache, size, offset)
+  if not do_split:
+    # Individual categories are contained in the train and test directories.
+    train_path = os.path.join(location, "train")
+    test_path = os.path.join(location, "test")
+
+    train_images = collect_dataset_images(train_path)
+    test_images = collect_dataset_images(test_path)
+
+  else:
+    # We'll have to generate a train/test split.
+    train_images, test_images = divide_sets(location)
+
+  train_set = _build_dataset(train_images, disk_cache, size, offset)
+  test_set = _build_dataset(test_images, disk_cache, size, offset)
 
   # Save the datasets to the disk.
   print "Saving dataset_train.pkl..."
@@ -141,10 +182,13 @@ def main():
                       help="Width offset for each image.")
   parser.add_argument("-H", "--offset_height", default=0, type=int,
                       help="Height offset for each image.")
+  parser.add_argument("-s", "--split_train_test", action="store_true",
+                      help="Whether to generate a new train/test split.")
   args = parser.parse_args()
 
   convert_dataset(args.dataset, (args.width, args.height), args.output,
-                  offset=(args.offset_width, args.offset_height))
+                  do_split=args.split_train_test, offset=(args.offset_width,
+                                                          args.offset_height))
 
 
 if __name__ == "__main__":
