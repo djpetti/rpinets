@@ -5,9 +5,11 @@
 
 
 import argparse
+import cPickle as pickle
 import os
 import random
 import sys
+import time
 
 import cv2
 
@@ -33,7 +35,8 @@ def _process_label(label, path, image_list):
     image_path = os.path.join(label_path, image)
     image_list.append((label, image, image_path))
 
-def _build_dataset(dataset_images, disk_cache, size, offset):
+def _build_dataset_and_cache(dataset_images, disk_cache, size, offset,
+                             no_dataset=False, link_to=None):
   """ Builds a new dataset, and adds images to the disk cache.
   Args:
     dataset_images: The images to include in the dataset. These should be tuples
@@ -41,12 +44,20 @@ def _build_dataset(dataset_images, disk_cache, size, offset):
     disk_cache: The DiskCache to add loaded images to.
     size: The x and y size of each image in the dataset.
     offset: The x and y offset to use when resizing each image.
+    no_dataset:
+      If true, it will ONLY build the cache. No dataset will be returned in this
+      case.
+    link_to: Path to a cache map to build a linked cache of, if specified.
   Returns:
     dataset: The dataset that was built from the data. """
   # Shuffle the images, and load them into the cache randomly. This is so that
   # contiguous loading from the cache actually works.
   print "Building image cache..."
-  random.shuffle(dataset_images)
+  if not link_to:
+    random.shuffle(dataset_images)
+  else:
+    # In this case, we want to sort from an existing cache.
+    dataset_images = _sort_from_existing_cache(link_to, dataset_images)
 
   print "Processing %d images..." % (len(dataset_images))
 
@@ -80,8 +91,58 @@ def _build_dataset(dataset_images, disk_cache, size, offset):
     # The None in the tuple is because there are no URLs corresponding to these
     # images.
     dataset_entries.append((img_id, None))
-  data = dataset.Dataset(dataset_entries, disk_cache, 0, (0, 0, 0))
-  return data
+
+  if not no_dataset:
+    data = dataset.Dataset(dataset_entries, disk_cache, 0, (0, 0, 0))
+    return data
+
+def _sort_from_existing_cache(map_path, unsorted_images):
+  """ Sorts a list of images into the same order as in an existing cache.
+  Args:
+    map_path: The path to the cache map that we are using as a template.
+    unsorted_images: The raw images, of the form returned by
+    collect_dataset_images. """
+  print "Linking to existing cache '%s'." % (map_path)
+
+  map_file = file(map_path, "rb")
+  labels, offsets, free_start, free_end = pickle.load(map_file)
+  map_file.close()
+
+  # Get the first image.
+  current_offset = 0 if free_start else free_end
+
+  # Create a dictionary mapping image IDs to their position in the cache.
+  image_positions = {}
+  order_counter = 0
+  while (len(image_positions) < len(offsets)):
+    img_id = offsets[current_offset]
+
+    # Add it the ordering dict.
+    image_positions[img_id] = order_counter
+    order_counter += 1
+
+    # Go to the next one.
+    label, name = utils.split_img_id(img_id)
+    _, image_size = labels[label][name]
+    current_offset += image_size
+
+  # Now, re-order our images to match.
+  ordered = [None] * len(image_positions)
+  for image in unsorted_images:
+    label, name, _ = image
+    img_id = utils.make_img_id(label, name)
+
+    # Find the correct position.
+    position = image_positions[img_id]
+    ordered[position] = image
+
+  # Make sure everything matches.
+  for i in range(0, len(ordered)):
+    if ordered[i] == None:
+      # Something didn't match up here.
+      raise ValueError("No corresponding image at positon %d." % (i))
+
+  return ordered
 
 def collect_dataset_images(path):
   """ Collects two lists of the images in the training and testing sets.
@@ -131,20 +192,35 @@ def divide_sets(path, test_fraction=0.1):
 
   return (train_images, test_images)
 
-def convert_dataset(location, size, output, do_split=False, offset=(0, 0)):
+def convert_dataset(location, size, output, seed, do_split=False,
+                    offset=(0, 0), link_path=None):
   """ Converts a dataset to a format that's usable by data_manager.
   Args:
     location: The location of the dataset to convert.
     size: The x and y sizes of each image in the dataset.
     output: The location to write output files to.
+    seed: The seed to use for random number generation when splitting the
+    batches.
     do_split: Whether to generate a new train/test split or use an existing one.
     offset: Optional offset to use for width and height when resizing the image.
+    link_path: Optinal existing cache_map file. If provided, it will only
+               generate a cache in the same ordering as the one indicated.
   """
+  random.seed(seed)
+
   # The conversion works by reading all the images and adding them to a
   # DiskCache.
   disk_cache = cache.DiskCache(output)
 
-  if not do_split:
+  if link_path:
+    # Skip dataset building entirely and just build the cache.
+    all_images = collect_dataset_images(location)
+    _build_dataset_and_cache(all_images, disk_cache, size, offset,
+                             no_dataset=True, link_to=link_path)
+
+    return
+
+  elif not do_split:
     # Individual categories are contained in the train and test directories.
     train_path = os.path.join(location, "train")
     test_path = os.path.join(location, "test")
@@ -156,8 +232,8 @@ def convert_dataset(location, size, output, do_split=False, offset=(0, 0)):
     # We'll have to generate a train/test split.
     train_images, test_images = divide_sets(location)
 
-  train_set = _build_dataset(train_images, disk_cache, size, offset)
-  test_set = _build_dataset(test_images, disk_cache, size, offset)
+  train_set = _build_dataset_and_cache(train_images, disk_cache, size, offset)
+  test_set = _build_dataset_and_cache(test_images, disk_cache, size, offset)
 
   # Save the datasets to the disk.
   print "Saving dataset_train.pkl..."
@@ -184,11 +260,16 @@ def main():
                       help="Height offset for each image.")
   parser.add_argument("-s", "--split_train_test", action="store_true",
                       help="Whether to generate a new train/test split.")
+  parser.add_argument("-r", "--random_seed", default=time.time(), type=int,
+                      help="Specify random seed for batch shuffling.")
+  parser.add_argument("-l", "--link", default=None,
+                      help="Path to a cache_map file that we should link to.")
   args = parser.parse_args()
 
   convert_dataset(args.dataset, (args.width, args.height), args.output,
-                  do_split=args.split_train_test, offset=(args.offset_width,
-                                                          args.offset_height))
+                  args.random_seed, do_split=args.split_train_test,
+                  offset=(args.offset_width, args.offset_height),
+                  link_path=args.link)
 
 
 if __name__ == "__main__":
