@@ -63,7 +63,8 @@ class DataManagerLoader(Loader):
   """ Loads datasets concurrently with the help of the data_manager package. """
 
   def __init__(self, batch_size, load_batches, image_shape, cache_location,
-               dataset_location, patch_shape=None, patch_flip=True):
+               dataset_location, patch_shape=None, patch_flip=True,
+               link_with=[]):
     """
     Args:
       batch_size: How many images are in each batch.
@@ -75,7 +76,9 @@ class DataManagerLoader(Loader):
       patch_shape: The shape of the patches that will be extracted from the
       images. If None, no patches will be extracted, and the raw images will be
       used directly.
-      patch_flip: Whether to include flipped patches. """
+      patch_flip: Whether to include flipped patches.
+      link_with: List of external cache directories to link with when we load
+                 datasets. """
     super(DataManagerLoader, self).__init__()
 
     self._image_shape = image_shape
@@ -83,6 +86,7 @@ class DataManagerLoader(Loader):
     self._dataset_location = dataset_location
     self._patch_shape = patch_shape
     self._patch_flip = patch_flip
+    self.__link_with = link_with
 
     # Register signal handlers.
     signal.signal(signal.SIGTERM, self.__on_signal)
@@ -208,7 +212,8 @@ class DataManagerLoader(Loader):
                                  self._image_shape, preload_batches=2,
                                  load_datasets_from=self._dataset_location,
                                  patch_shape=self._patch_shape,
-                                 patch_flip=self._patch_flip)
+                                 patch_flip=self._patch_flip,
+                                 link_with=self.__link_with)
 
   def _init_loader_threads(self):
     """ Starts the training and testing loader threads. """
@@ -369,8 +374,13 @@ class DataManagerLoader(Loader):
     # Create a converted copy of the testing data.
     testing_buffer = self._testing_buffer.astype("float32")
     testing_buffer -= self._testing_buffer_mean
-    # Keras wants all ten copies.
-    labels = np.tile(self._testing_labels, 10)
+
+    if self._patch_shape:
+      # Keras wants all ten copies.
+      labels = np.tile(self._testing_labels, 10)
+    else:
+      labels = self._testing_labels[:]
+
     # Allow it to load another batch.
     self.__test_buffer_empty.release()
 

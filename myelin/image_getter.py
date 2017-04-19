@@ -13,7 +13,8 @@ class ImageGetter(object):
 
   def __init__(self, cache_location, batch_size, image_shape,
                preload_batches=1, test_percentage=0.1,
-               load_datasets_from=None, patch_shape=None, patch_flip=True):
+               load_datasets_from=None, patch_shape=None, patch_flip=True,
+               link_with=[]):
     """
     Args:
       cache_location: Where to cache downloaded images. Will be created if it
@@ -35,13 +36,18 @@ class ImageGetter(object):
                    will be used directly. Furthermore, if this is specified, the
                    batches from the testing dataset will contain copies of every
                    patch.
-      patch_flip: Whether to include horizontally flipped patches. """
+      patch_flip: Whether to include horizontally flipped patches.
+      link_with: Specifies a list of cache directories to link with the current
+                 dataset. """
     if len(image_shape) != 3:
       raise ValueError( \
           "Expected image shape of form (x size, y size, channels).")
     if patch_shape and len(patch_shape) != 2:
       raise ValueError( \
           "Expected patch shape of form (x size, y size).")
+    if patch_shape and link_with:
+      raise ValueError( \
+          "Linked datasets do not (yet) support patching.")
 
     self._cache = cache.DiskCache(cache_location, 50000000000)
     if hasattr(batch_size, "__getitem__"):
@@ -61,6 +67,8 @@ class ImageGetter(object):
 
     self.__loaded_datasets = False
     self.__cleaned_up = False
+
+    self.__link_with = link_with
 
     # Initialize datasets.
     self._init_datasets()
@@ -90,12 +98,28 @@ class ImageGetter(object):
     Args:
       train_data: Data for training set.
       test_data: Data for testing set. """
-    self._train_set = dataset.Dataset(train_data, self._cache,
-                                      self._train_batch_size,
-                                      self._image_shape,
-                                      preload_batches=self._preload_batches,
-                                      patch_shape=self._patch_shape,
-                                      patch_flip=self._patch_flip)
+    # Load all the caches we requested.
+    all_caches = [self._cache]
+    for cache_name in self.__link_with:
+      all_caches.append(cache.DiskCache(cache_name))
+
+    # Training dataset.
+    if self.__link_with:
+      # Build linked dataset.
+      self._train_set = dataset.LinkedDataset(train_data, all_caches,
+                                              self._train_batch_size,
+                                              self._image_shape,
+                                              preload_batches=self._preload_batches)
+    else:
+      # No special features.
+      self._train_set = dataset.Dataset(train_data, self._cache,
+                                        self._train_batch_size,
+                                        self._image_shape,
+                                        preload_batches=self._preload_batches,
+                                        patch_shape=self._patch_shape,
+                                        patch_flip=self._patch_flip)
+
+    # Testing dataset.
     if self._patch_shape:
       # Use all the patches in the test set.
       self._test_set = dataset.PatchedDataset(test_data, self._cache,
@@ -105,8 +129,15 @@ class ImageGetter(object):
                                                   self._preload_batches,
                                               patch_shape=self._patch_shape,
                                               patch_flip=self._patch_flip)
+    elif self.__link_with:
+      # Build linked dataset.
+      self._test_set = dataset.LinkedDataset(test_data, all_caches,
+                                             self._test_batch_size,
+                                             self._image_shape,
+                                             preload_batches= \
+                                                self._preload_batches)
     else:
-      # No patches.
+      # No special features.
       self._test_set = dataset.Dataset(test_data, self._cache,
                                        self._test_batch_size, self._image_shape,
                                        preload_batches=self._preload_batches,

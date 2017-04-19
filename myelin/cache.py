@@ -351,7 +351,7 @@ class DiskCache(Cache):
       image = self.__do_get(label, name)
       assert image is not None
       img_id = utils.make_img_id(label, name)
-      loaded[img_id] = image
+      loaded[img_id] = [image]
 
     return loaded, not_found
 
@@ -445,7 +445,7 @@ class DiskCache(Cache):
         # OpenCV knows when the image ends, so we don't have to worry about bounding
         # our slice on one side.
         image = cv2.imdecode(raw_data, cv2.IMREAD_COLOR)
-        images[img_id] = image
+        images[img_id] = [image]
       else:
         logger.debug("Skipping image: %s" % (img_id))
 

@@ -18,7 +18,7 @@ class _DatasetBase(object):
   """ Represents a single dataset, with a fixed group of images that it draws
   randomly from. """
 
-  def __init__(self, images, disk_cache, batch_size, image_shape,
+  def __init__(self, images, disk_caches, batch_size, image_shape,
                patch_shape=None, patch_flip=True):
     """
     Args:
@@ -26,7 +26,9 @@ class _DatasetBase(object):
       contain tuples with each image's img_id and URL. If the URL is None, then
       that image should already be present in the cache, otherwise it will cause
       an error.
-      disk_cache: The disk cache where we can store downloaded images.
+      disk_caches: The disk caches where we can store downloaded images. If
+                   there is more than one, downloading is not supported, and all
+                   corresponding images will be read from all caches.
       batch_size: The size of each batch from this dataset.
       image_shape: A three-element tuple containing the x and y shape of the
                    raw images, and the number of channels.
@@ -46,14 +48,19 @@ class _DatasetBase(object):
       self.__image_urls[img_id] = url
     self.__images = RandomSet(image_data)
 
-    self._cache = disk_cache
+    self._caches = disk_caches
 
     self._batch_size = batch_size
     self._patch_shape = patch_shape
     self._patch_flip = patch_flip
 
     # The fraction of the last batch that it was able to find in the cache.
-    self.__cache_hit_rate = 0.0
+    if len(self._caches) == 1:
+      self.__cache_hit_rate = 0.0
+    else:
+      # In this case, we assume everything is in the cache to begin with.
+      logger.debug("Assuming everything is in cache.")
+      self.__cache_hit_rate = 1.0
 
     # The image ID of the first image in the cache.
     self.__first_cached_image = None
@@ -159,9 +166,10 @@ class _DatasetBase(object):
     logger.info("Getting sequential batch.")
 
     if not self.__first_cached_image:
-      # Find the first image in the cache.
+      # Find the first image in the cache. Even if we have multiple caches, the
+      # arrangement of images in each one should be identical.
       self.__first_cached_image = \
-          self._cache.get_first_in_cache(use_only=self.__images)
+          self._caches[0].get_first_in_cache(use_only=self.__images)
       logger.debug("First image in cache: %s" % (self.__first_cached_image))
 
       self.__sequential_start_image = self.__first_cached_image
@@ -208,13 +216,69 @@ class _DatasetBase(object):
     logger.info("Getting specific batch.")
 
     # We can simply bulk-load all the images.
-    loaded, not_found = self._cache.bulk_get(images)
+    loaded, not_found = self.__load_from_all_caches("bulk_get",
+                                                    loader_args=[images])
+
     if not_found:
       raise ValueError("The following images are not cached: %s" % (not_found))
-    for img_id, image in loaded.iteritems():
-      self._buffer_image(image, img_id)
+    for img_id, images in loaded.iteritems():
+      self._buffer_image(images, img_id)
 
     return self._mem_buffer.get_batch()
+
+  def __merge_image_maps(self, base_image_map, new_image_map):
+    """ Merges two images maps, of the variety returned by cache mutiple-get
+    methods, into one.
+    Args:
+      base_image_map: The map that we will merge into.
+      new_image_map: The map that we are merging. """
+    for img_id, images in new_image_map.iteritems():
+        # If img_id is not in here, that means that the caches do not contain
+        # the same images, which should not be the case.
+        if img_id not in base_image_map:
+          raise ValueError("Caches do not all contain '%s'!" % (img_id))
+        base_image_map[img_id].append(images[0])
+
+  def __bulk_get_from_all_caches(self, *args, **kwargs):
+    """ Bulk loads corresponding images from all the caches, and combines the
+    output into a single data structure.
+    Args:
+      All arguments passed transparently to DiskCache.bulk_get().
+    Returns:
+      A dictionary of lists of loaded images indexed by image ID, and a list of
+      image IDs of everything that could not be loaded. """
+    # We're going to use the initial load to initialize our data structures.
+    loaded, not_found = self._caches[0].bulk_get(images)
+
+    for cache in self._caches[1:]:
+      cache_loaded, cache_not_found = cache.bulk_get(images)
+
+      not_found.extend(cache_not_found)
+      self.__merge_image_maps(loaded, cache_loaded)
+
+    return loaded, not_found
+
+  def __get_sequential_from_all_caches(self, *args, **kwargs):
+    """ Sequentially loads corresponding images from all the caches, and
+    combines the output into a single data structure.
+    Args:
+      Passed transparently to DiskCache.get_sequential().
+    Returns:
+      A dictionary mapping image IDs to loaded image data, and the image ID of
+      the image directly after the last loaded one. """
+    # We're going to use the initial load to initialize our data structures.
+    loaded, next_start = self._caches[0].get_sequential(*args, **kwargs)
+
+    for cache in self._caches[1:]:
+      cache_loaded, cache_next_start = cache.get_sequential(*args, **kwargs)
+      # The next starting image should be the same for every cache.
+      if cache_next_start != next_start:
+        raise ValueError("Got different next_start images: %s, %s." % \
+                         (next_start, cache_next_start))
+
+      self.__merge_image_maps(loaded, cache_loaded)
+
+    return loaded, next_start
 
   def _load_random_images(self, max_images):
     """ Loads a random image from either the cache or the internet. If loading
@@ -228,7 +292,8 @@ class _DatasetBase(object):
     img_id, url = self._pick_random_image()
     synset, number = utils.split_img_id(img_id)
 
-    if self._cache.is_in_cache(synset, number):
+    # If it's in one cache, it should be in them all.
+    if self._caches[0].is_in_cache(synset, number):
       # It's in the cache, so load it and any additional sequential images.
       loaded, _ = self._get_cached_images(synset, number, max_images)
       return loaded
@@ -265,9 +330,10 @@ class _DatasetBase(object):
     logger.debug("Attempting load of %d sequential images from cache..." % \
                  (load_images))
 
-    loaded, next_start = self._cache.get_sequential(start_label, start_name,
-                                                    load_images,
-                                                    use_only=self.__images)
+    loaded, next_start = \
+        self.__get_sequential_from_all_caches(start_label, start_name,
+                                              load_images,
+                                              use_only=self.__images)
 
     for img_id, image in loaded.iteritems():
       self._buffer_image(image, img_id)
@@ -279,6 +345,9 @@ class _DatasetBase(object):
     Args:
       image: The actual image data to store.
       img_id: The ID of the image. """
+    # It's going to come as a list, but should have only one item.
+    image = image[0]
+
     # Select a patch.
     if self._patch_shape:
       patches = data_augmentation.extract_patches(image, self._patch_shape,
@@ -348,7 +417,7 @@ class Dataset(_DatasetBase):
     Extra Args:
       preload_batches: How many additional batches to preload. This can greatly
                        increase performace, but uses additional RAM. """
-    super(Dataset, self).__init__(images, disk_cache, batch_size, image_shape,
+    super(Dataset, self).__init__(images, [disk_cache], batch_size, image_shape,
                                   patch_shape=patch_shape,
                                   patch_flip=patch_flip)
 
@@ -362,7 +431,7 @@ class Dataset(_DatasetBase):
     self._mem_buffer = cache.MemoryBuffer(buffer_shape, batch_size,
                                           preload_batches, channels=channels)
     self._download_manager = \
-        downloader.DownloadManager(self._cache,
+        downloader.DownloadManager(disk_cache,
                                    self._mem_buffer, image_shape,
                                    patch_shape=self._patch_shape)
 
@@ -383,7 +452,7 @@ class PatchedDataset(_DatasetBase):
     if not patch_shape:
       raise ValueError("Keyword arg patch_shape is required for PatchedDataset.")
 
-    super(PatchedDataset, self).__init__(images, disk_cache, batch_size,
+    super(PatchedDataset, self).__init__(images, [disk_cache], batch_size,
                                          image_shape, patch_shape=patch_shape,
                                          patch_flip=patch_flip)
 
@@ -398,7 +467,7 @@ class PatchedDataset(_DatasetBase):
                                           preload_batches, channels=channels,
                                           num_patches=num_patches)
     self._download_manager = \
-        downloader.DownloadManager(self._cache,
+        downloader.DownloadManager(disk_cache,
                                    self._mem_buffer, image_shape,
                                    all_patches=True,
                                    patch_shape=self._patch_shape)
@@ -414,3 +483,47 @@ class PatchedDataset(_DatasetBase):
 
     label, name = utils.split_img_id(img_id)
     self._mem_buffer.add_patches(patches, name, label)
+
+class LinkedDataset(_DatasetBase):
+  """ Implements a dataset that draws corresponding images from multiple on-disk
+  caches. This is only for datasets that are stored completely on disk with no
+  downloadable components. """
+
+  def __init__(self, images, disk_caches, batch_size, image_shape,
+               preload_batches=1, **kwargs):
+    """ See documentation for _DatasetBase __init__ function. In this cache,
+    disk_caches is a list of caches instead of a single one. """
+    super(LinkedDataset, self).__init__(images, disk_caches, batch_size,
+                                        image_shape, **kwargs)
+
+    # We need to size the buffer accordingly for what size images are
+    # going to be stored.
+    buffer_shape = self._image_shape[:2]
+    _, _, channels = self._image_shape
+    if self._patch_shape:
+      buffer_shape = self._patch_shape
+
+    # We'll use the patch mechanism to store corresponding images from different
+    # caches, even though they're not really patches.
+    num_patches = len(disk_caches)
+    logger.debug("Reading from %d individual caches." % (num_patches))
+
+    self._mem_buffer = cache.MemoryBuffer(buffer_shape, batch_size,
+                                          preload_batches, channels=channels,
+                                          num_patches=num_patches)
+
+    # This is not actually used, but we put it there so we can use the same
+    # machinery.
+    self._download_manager = \
+        downloader.DownloadManager(disk_caches[0],
+                                   self._mem_buffer, image_shape)
+
+  def _buffer_image(self, images, img_id):
+    """ Pre-process loaded images and store them in the memory buffer.
+    Args:
+      images: The images store. Should be a list of corresponding images from
+              different caches.
+      img_id: The ID of the images. (It should be the same for all.) """
+    label, name = utils.split_img_id(img_id)
+    # We'll treat each image as patches.
+    self._mem_buffer.add_patches(images, name, label)
