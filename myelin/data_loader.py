@@ -451,6 +451,10 @@ class DataManagerLoader(Loader):
     self.__test_cpu_lock.acquire()
 
     for number in output:
+      if number not in self.__reverse_labels:
+        logger.warning("Couldn't find label %d." % (number))
+        labels.append(None)
+        continue
       labels.append(self.__reverse_labels[number])
 
     self.__train_cpu_lock.release()

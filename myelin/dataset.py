@@ -478,7 +478,7 @@ class PatchedDataset(_DatasetBase):
       image: The actual image data to store.
       img_id: The ID of the image. """
     # Add all the patches.
-    patches = data_augmentation.extract_patches(image, self._patch_shape,
+    patches = data_augmentation.extract_patches(image[0], self._patch_shape,
                                                 flip=self._patch_flip)
 
     label, name = utils.split_img_id(img_id)
