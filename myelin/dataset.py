@@ -8,6 +8,7 @@ from randomset import RandomSet
 import cache
 import data_augmentation
 import downloader
+import images as image_utils
 import utils
 
 
@@ -492,7 +493,8 @@ class LinkedDataset(_DatasetBase):
   def __init__(self, images, disk_caches, batch_size, image_shape,
                preload_batches=1, **kwargs):
     """ See documentation for _DatasetBase __init__ function. In this cache,
-    disk_caches is a list of caches instead of a single one. """
+    disk_caches is a list of caches instead of a single one. Also, here the
+    patch_shape argument will only apply to the main cache. """
     super(LinkedDataset, self).__init__(images, disk_caches, batch_size,
                                         image_shape, **kwargs)
 
@@ -516,7 +518,8 @@ class LinkedDataset(_DatasetBase):
     # machinery.
     self._download_manager = \
         downloader.DownloadManager(disk_caches[0],
-                                   self._mem_buffer, image_shape)
+                                   self._mem_buffer, image_shape,
+                                   patch_shape=self._patch_shape)
 
   def _buffer_image(self, images, img_id):
     """ Pre-process loaded images and store them in the memory buffer.
@@ -525,5 +528,19 @@ class LinkedDataset(_DatasetBase):
               different caches.
       img_id: The ID of the images. (It should be the same for all.) """
     label, name = utils.split_img_id(img_id)
+
+    # Select a patch from the main cache.
+    reshaped_images = images
+    if self._patch_shape:
+      reshaped_images = []
+      patches = data_augmentation.extract_patches(images[0], self._patch_shape,
+                                                  flip=self._patch_flip)
+      reshaped_images.append(patches[random.randint(0, len(patches) - 1)])
+
+      # Reshape the other images so they fit.
+      flipped_shape = (self._patch_shape[1], self._patch_shape[0])
+      for image in images[1:]:
+        reshaped_images.append(image_utils.reshape_image(image, flipped_shape))
+
     # We'll treat each image as patches.
-    self._mem_buffer.add_patches(images, name, label)
+    self._mem_buffer.add_patches(reshaped_images, name, label)

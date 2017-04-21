@@ -35,7 +35,10 @@ class ImageGetter(object):
                    is None, no patches will be extracted, and the raw images
                    will be used directly. Furthermore, if this is specified, the
                    batches from the testing dataset will contain copies of every
-                   patch.
+                   patch. The exception to this is when using linked datasets,
+                   in which case only the main dataset will be patched, and the
+                   testing one will contain no extra copies. (The auxiliary
+                   datasets will be reshaped to maintain the same size.)
       patch_flip: Whether to include horizontally flipped patches.
       link_with: Specifies a list of cache directories to link with the current
                  dataset. """
@@ -45,9 +48,6 @@ class ImageGetter(object):
     if patch_shape and len(patch_shape) != 2:
       raise ValueError( \
           "Expected patch shape of form (x size, y size).")
-    if patch_shape and link_with:
-      raise ValueError( \
-          "Linked datasets do not (yet) support patching.")
 
     self._cache = cache.DiskCache(cache_location, 50000000000)
     if hasattr(batch_size, "__getitem__"):
@@ -109,7 +109,9 @@ class ImageGetter(object):
       self._train_set = dataset.LinkedDataset(train_data, all_caches,
                                               self._train_batch_size,
                                               self._image_shape,
-                                              preload_batches=self._preload_batches)
+                                              preload_batches=self._preload_batches,
+                                              patch_shape=self._patch_shape,
+                                              patch_flip=self._patch_flip)
     else:
       # No special features.
       self._train_set = dataset.Dataset(train_data, self._cache,
@@ -120,7 +122,16 @@ class ImageGetter(object):
                                         patch_flip=self._patch_flip)
 
     # Testing dataset.
-    if self._patch_shape:
+    if self.__link_with:
+      # Build linked dataset.
+      self._test_set = dataset.LinkedDataset(test_data, all_caches,
+                                             self._test_batch_size,
+                                             self._image_shape,
+                                             preload_batches= \
+                                                self._preload_batches,
+                                             patch_shape=self._patch_shape,
+                                             patch_flip=self._patch_flip)
+    elif self._patch_shape:
       # Use all the patches in the test set.
       self._test_set = dataset.PatchedDataset(test_data, self._cache,
                                               self._test_batch_size,
@@ -129,13 +140,6 @@ class ImageGetter(object):
                                                   self._preload_batches,
                                               patch_shape=self._patch_shape,
                                               patch_flip=self._patch_flip)
-    elif self.__link_with:
-      # Build linked dataset.
-      self._test_set = dataset.LinkedDataset(test_data, all_caches,
-                                             self._test_batch_size,
-                                             self._image_shape,
-                                             preload_batches= \
-                                                self._preload_batches)
     else:
       # No special features.
       self._test_set = dataset.Dataset(test_data, self._cache,
