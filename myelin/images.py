@@ -181,7 +181,6 @@ def reshape_image(image, shape, offset=(0, 0)):
   else:
     height, width = image.shape
 
-  logger.debug("Original image shape: (%d, %d)" % (width, height))
   target_width, target_height = shape
 
   # Find the largest we can make the initial crop.
@@ -207,8 +206,6 @@ def reshape_image(image, shape, offset=(0, 0)):
 
   crop_width = int(crop_width)
   crop_height = int(crop_height)
-
-  logger.debug("Cropping to size: (%d, %d)" % (crop_width, crop_height))
 
   # Crop the image.
   crop_left = (width - crop_width) / 2

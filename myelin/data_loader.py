@@ -264,13 +264,49 @@ class DataManagerLoader(Loader):
 
     return converted
 
+  def __section_means(self, image_buffer):
+    """ Calculates means for the section of the image buffer that came from each
+    dataset in the case of linked datasets.
+    Args:
+      image_buffer: The image buffer to calculate the means of.
+    Returns:
+      The calculated means. """
+    total_caches = len(self.__link_with) + 1
+    section_size = image_buffer.shape[0] / total_caches
+    logger.debug("Mean section size: %d" % (section_size))
+    buffer_means = []
+
+    for i in range(0, total_caches):
+      start_index = i * section_size
+      end_index = start_index + section_size
+      section_mean = np.mean(image_buffer[start_index:end_index])
+      section_mean = section_mean.astype("float32")
+
+      buffer_means.append(section_mean)
+
+    return buffer_means
+
+  def __subtract_section_means(self, image_buffer, means):
+    """ Subtracts the calculated section means from the buffer.
+    Args:
+      image_buffer: The buffer to subtract from.
+      means: The calculated section means. """
+    section_size = image_buffer.shape[0] / len(means)
+
+    for i, mean in enumerate(means):
+      start_index = i * section_size
+      end_index = start_index + section_size
+
+      image_buffer[start_index:end_index] -= mean
+
   def __load_next_training_batch(self):
     """ Loads the next batch of training data from the Imagenet backend. """
     self._training_buffer, labels, names = self._load_raw_training_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    self._training_buffer_mean = \
-        np.mean(self._training_buffer).astype("float32")
-    logger.debug("Training mean: %f" % (self._training_buffer_mean))
+
+    # Compute separate means for each linked dataset.
+    self._training_buffer_mean = self.__section_means(self._training_buffer)
+    logger.debug("Training mean: %s" % (self._training_buffer_mean))
 
     self.__train_cpu_lock.acquire()
 
@@ -284,9 +320,8 @@ class DataManagerLoader(Loader):
     """ Loads the next batch of testing data from the Imagenet backend. """
     self._testing_buffer, labels, names = self._load_raw_testing_batch()
     logger.debug("Got raw labels: %s" % (labels))
-    self._testing_buffer_mean = \
-        np.mean(self._testing_buffer).astype("float32")
-    logger.debug("Testing mean: %f" % (self._testing_buffer_mean))
+    self._testing_buffer_mean = self.__section_means(self._testing_buffer)
+    logger.debug("Testing mean: %s" % (self._testing_buffer_mean))
 
     self.__test_cpu_lock.acquire()
 
@@ -358,7 +393,7 @@ class DataManagerLoader(Loader):
 
     # Create a converted copy of the training data.
     training_buffer = self._training_buffer.astype("float32")
-    training_buffer -= self._training_buffer_mean
+    self.__subtract_section_means(training_buffer, self._training_buffer_mean)
     labels = self._training_labels[:]
     # Allow it to load another batch.
     self.__train_buffer_empty.release()
@@ -373,11 +408,14 @@ class DataManagerLoader(Loader):
 
     # Create a converted copy of the testing data.
     testing_buffer = self._testing_buffer.astype("float32")
-    testing_buffer -= self._testing_buffer_mean
+    self.__subtract_section_means(testing_buffer, self._testing_buffer_mean)
 
-    if self._patch_shape:
-      # Keras wants all ten copies.
-      labels = np.tile(self._testing_labels, 10)
+    if (self._patch_shape and not self.__link_with):
+      # Keras wants all extra copies.
+      if self._patch_flip:
+        labels = np.tile(self._testing_labels, 10)
+      else:
+        labels = np.tile(self._testing_labels, 5)
     else:
       labels = self._testing_labels[:]
 
