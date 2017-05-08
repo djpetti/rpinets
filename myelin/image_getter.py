@@ -14,7 +14,7 @@ class ImageGetter(object):
   def __init__(self, cache_location, batch_size, image_shape,
                preload_batches=1, test_percentage=0.1,
                load_datasets_from=None, patch_shape=None, patch_flip=True,
-               link_with=[]):
+               link_with=[], pca_stddev=0.1, jitter_stddev=0.1):
     """
     Args:
       cache_location: Where to cache downloaded images. Will be created if it
@@ -41,7 +41,9 @@ class ImageGetter(object):
                    datasets will be reshaped to maintain the same size.)
       patch_flip: Whether to include horizontally flipped patches.
       link_with: Specifies a list of cache directories to link with the current
-                 dataset. """
+                 dataset.
+      pca_stddev: The standard deviation for PCA.
+      jitter_stddev: The standard deviation for jitter."""
     if len(image_shape) != 3:
       raise ValueError( \
           "Expected image shape of form (x size, y size, channels).")
@@ -64,6 +66,9 @@ class ImageGetter(object):
     self._preload_batches = preload_batches
     self._test_percentage = test_percentage
     self._load_datasets_from = load_datasets_from
+
+    self._pca_stddev = pca_stddev
+    self._jitter_stddev = jitter_stddev
 
     self.__loaded_datasets = False
     self.__cleaned_up = False
@@ -111,7 +116,9 @@ class ImageGetter(object):
                                               self._image_shape,
                                               preload_batches=self._preload_batches,
                                               patch_shape=self._patch_shape,
-                                              patch_flip=self._patch_flip)
+                                              patch_flip=self._patch_flip,
+                                              pca_stddev=self._pca_stddev,
+                                              jitter_stddev=self._jitter_stddev)
     else:
       # No special features.
       self._train_set = dataset.Dataset(train_data, self._cache,
@@ -119,7 +126,9 @@ class ImageGetter(object):
                                         self._image_shape,
                                         preload_batches=self._preload_batches,
                                         patch_shape=self._patch_shape,
-                                        patch_flip=self._patch_flip)
+                                        patch_flip=self._patch_flip,
+                                        pca_stddev=self._pca_stddev,
+                                        jitter_stddev=self._jitter_stddev)
 
     # Testing dataset.
     if self.__link_with:
@@ -130,7 +139,9 @@ class ImageGetter(object):
                                              preload_batches= \
                                                 self._preload_batches,
                                              patch_shape=self._patch_shape,
-                                             patch_flip=self._patch_flip)
+                                             patch_flip=self._patch_flip,
+                                             pca_stddev=self._pca_stddev,
+                                             jitter_stddev=self._jitter_stddev)
     elif self._patch_shape:
       # Use all the patches in the test set.
       self._test_set = dataset.PatchedDataset(test_data, self._cache,
@@ -139,14 +150,18 @@ class ImageGetter(object):
                                               preload_batches= \
                                                   self._preload_batches,
                                               patch_shape=self._patch_shape,
-                                              patch_flip=self._patch_flip)
+                                              patch_flip=self._patch_flip,
+                                              pca_stddev=self._pca_stddev,
+                                              jitter_stddev=self._jitter_stddev)
     else:
       # No special features.
       self._test_set = dataset.Dataset(test_data, self._cache,
                                        self._test_batch_size, self._image_shape,
                                        preload_batches=self._preload_batches,
                                        patch_shape=self._patch_shape,
-                                       patch_flip=self._patch_flip)
+                                       patch_flip=self._patch_flip,
+                                       pca_stddev=self._pca_stddev,
+                                       jitter_stddev=self._jitter_stddev)
 
   def _init_datasets(self):
     """ Initializes the training and testing datasets. """

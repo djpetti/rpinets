@@ -20,7 +20,8 @@ class _DatasetBase(object):
   randomly from. """
 
   def __init__(self, images, disk_caches, batch_size, image_shape,
-               patch_shape=None, patch_flip=True):
+               patch_shape=None, patch_flip=True, pca_stddev=0.1,
+               jitter_stddev=0.1, preload_batches=1):
     """
     Args:
       images: The list of images that makes up this dataset. The list should
@@ -36,7 +37,11 @@ class _DatasetBase(object):
       patch_shape: The shape of the patches to extract from images. If it is
                    None, no patches will be extracted, and the base image will
                    be used instead.
-      patch_flip: Whether to include flipped patches. """
+      patch_flip: Whether to include flipped patches.
+      pca_stddev: Stddev of random distribution for PCA. Set to 0 to disable.
+      jitter_stddev: Stddev of random noise for jitter. Set to 0 to disable.
+      preload_batches: How many batches to preload. This can increase
+                       performance, but uses more RAM. """
     self._image_shape = image_shape
 
     # Split image data into a set with just the IDs, and a map of the IDs to the
@@ -55,6 +60,8 @@ class _DatasetBase(object):
     self._patch_shape = patch_shape
     self._patch_flip = patch_flip
 
+    self._preload_batches = preload_batches
+
     # The fraction of the last batch that it was able to find in the cache.
     if len(self._caches) == 1:
       self.__cache_hit_rate = 0.0
@@ -67,6 +74,9 @@ class _DatasetBase(object):
     self.__first_cached_image = None
     # The image to start at when loading the next sequential batch.
     self.__sequential_start_image = None
+
+    self._pca_stddev = pca_stddev
+    self._jitter_stddev = jitter_stddev
 
     logger.info("Have %d total images in database." % (len(self.__images)))
 
@@ -349,6 +359,9 @@ class _DatasetBase(object):
     # It's going to come as a list, but should have only one item.
     image = image[0]
 
+    image = data_augmentation.pca(image, stddev=self._pca_stddev)
+    image = data_augmentation.jitter(image, stddev=self._jitter_stddev)
+
     # Select a patch.
     if self._patch_shape:
       patches = data_augmentation.extract_patches(image, self._patch_shape,
@@ -413,14 +426,13 @@ class Dataset(_DatasetBase):
   """ A standard dataset. """
 
   def __init__(self, images, disk_cache, batch_size, image_shape,
-               preload_batches=1, patch_shape=None, patch_flip=True):
+               **kwargs):
     """ See documentation for superclass method.
     Extra Args:
       preload_batches: How many additional batches to preload. This can greatly
                        increase performace, but uses additional RAM. """
     super(Dataset, self).__init__(images, [disk_cache], batch_size, image_shape,
-                                  patch_shape=patch_shape,
-                                  patch_flip=patch_flip)
+                                  **kwargs)
 
     # We need to size the buffer accordingly for what size images are
     # going to be stored.
@@ -430,7 +442,8 @@ class Dataset(_DatasetBase):
       buffer_shape = self._patch_shape
 
     self._mem_buffer = cache.MemoryBuffer(buffer_shape, batch_size,
-                                          preload_batches, channels=channels)
+                                          self._preload_batches,
+                                          channels=channels)
     self._download_manager = \
         downloader.DownloadManager(disk_cache,
                                    self._mem_buffer, image_shape,
@@ -442,7 +455,7 @@ class PatchedDataset(_DatasetBase):
   one version of each batch for every patch type. """
 
   def __init__(self, images, disk_cache, batch_size, image_shape,
-               preload_batches=1, patch_shape=None, patch_flip=True):
+               **kwargs):
     """ See documentation for _DatasetBase __init__ function.
     NOTE: batch_size here represents the base batch size. When you request a
     batch, it will actually return 10 times this many images, since it will use
@@ -450,22 +463,22 @@ class PatchedDataset(_DatasetBase):
     Extra Args:
       preload_batches: How many additional batches to preload. This can greatly
                        increase performace, but uses additional RAM. """
-    if not patch_shape:
-      raise ValueError("Keyword arg patch_shape is required for PatchedDataset.")
-
     super(PatchedDataset, self).__init__(images, [disk_cache], batch_size,
-                                         image_shape, patch_shape=patch_shape,
-                                         patch_flip=patch_flip)
+                                         image_shape, **kwargs)
+
+    if not self._patch_shape:
+      raise ValueError("Keyword arg patch_shape is required for PatchedDataset.")
 
     # We need extra buffer space to store the extra patches.
     num_patches = 10
-    if not patch_flip:
+    if not self._patch_flip:
       # We're not storing flipped patches, which halves our storage
       # requirements.
       num_patches /= 2
     _, _, channels = self._image_shape
     self._mem_buffer = cache.MemoryBuffer(self._patch_shape, batch_size,
-                                          preload_batches, channels=channels,
+                                          self._preload_batches,
+                                          channels=channels,
                                           num_patches=num_patches)
     self._download_manager = \
         downloader.DownloadManager(disk_cache,
@@ -478,8 +491,14 @@ class PatchedDataset(_DatasetBase):
     Args:
       image: The actual image data to store.
       img_id: The ID of the image. """
+    # It will come as a list, but we should have only one image.
+    image = image[0]
+
+    image = data_augmentation.pca(image, stddev=self._pca_stddev)
+    image = data_augmentation.jitter(image, stddev=self._jitter_stddev)
+
     # Add all the patches.
-    patches = data_augmentation.extract_patches(image[0], self._patch_shape,
+    patches = data_augmentation.extract_patches(image, self._patch_shape,
                                                 flip=self._patch_flip)
 
     label, name = utils.split_img_id(img_id)
@@ -491,7 +510,7 @@ class LinkedDataset(_DatasetBase):
   downloadable components. """
 
   def __init__(self, images, disk_caches, batch_size, image_shape,
-               preload_batches=1, **kwargs):
+               **kwargs):
     """ See documentation for _DatasetBase __init__ function. In this cache,
     disk_caches is a list of caches instead of a single one. Also, here the
     patch_shape argument will only apply to the main cache. """
@@ -511,7 +530,8 @@ class LinkedDataset(_DatasetBase):
     logger.debug("Reading from %d individual caches." % (num_patches))
 
     self._mem_buffer = cache.MemoryBuffer(buffer_shape, batch_size,
-                                          preload_batches, channels=channels,
+                                          self._preload_batches,
+                                          channels=channels,
                                           num_patches=num_patches)
 
     # This is not actually used, but we put it there so we can use the same
@@ -542,5 +562,12 @@ class LinkedDataset(_DatasetBase):
       for image in images[1:]:
         reshaped_images.append(image_utils.reshape_image(image, flipped_shape))
 
+    transformed_images = []
+    for image in reshaped_images:
+      transformed_image = data_augmentation.pca(image, stddev=self._pca_stddev)
+      transformed_image = data_augmentation.jitter(image,
+                                                   stddev=self._jitter_stddev)
+      transformed_images.append(transformed_image)
+
     # We'll treat each image as patches.
-    self._mem_buffer.add_patches(reshaped_images, name, label)
+    self._mem_buffer.add_patches(transformed_images, name, label)

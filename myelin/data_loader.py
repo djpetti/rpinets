@@ -64,7 +64,7 @@ class DataManagerLoader(Loader):
 
   def __init__(self, batch_size, load_batches, image_shape, cache_location,
                dataset_location, patch_shape=None, patch_flip=True,
-               link_with=[]):
+               link_with=[], pca_stddev=0.1, jitter_stddev=0.1):
     """
     Args:
       batch_size: How many images are in each batch.
@@ -78,7 +78,9 @@ class DataManagerLoader(Loader):
       used directly.
       patch_flip: Whether to include flipped patches.
       link_with: List of external cache directories to link with when we load
-                 datasets. """
+                 datasets.
+      pca_stddev: The standard deviation for PCA.
+      jitter_stddev: The standard deviation for jitter. """
     super(DataManagerLoader, self).__init__()
 
     self._image_shape = image_shape
@@ -87,6 +89,9 @@ class DataManagerLoader(Loader):
     self._patch_shape = patch_shape
     self._patch_flip = patch_flip
     self.__link_with = link_with
+
+    self._pca_stddev = pca_stddev
+    self._jitter_stddev = jitter_stddev
 
     # Register signal handlers.
     signal.signal(signal.SIGTERM, self.__on_signal)
@@ -213,7 +218,9 @@ class DataManagerLoader(Loader):
                                  load_datasets_from=self._dataset_location,
                                  patch_shape=self._patch_shape,
                                  patch_flip=self._patch_flip,
-                                 link_with=self.__link_with)
+                                 link_with=self.__link_with,
+                                 pca_stddev=self._pca_stddev,
+                                 jitter_stddev=self._jitter_stddev)
 
   def _init_loader_threads(self):
     """ Starts the training and testing loader threads. """
