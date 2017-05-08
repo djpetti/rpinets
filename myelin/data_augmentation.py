@@ -40,24 +40,48 @@ def extract_patches(image, patch_shape, flip=True):
 
   return ret
 
-def pca(image):
+def pca(image, stddev=0.1):
   """ Performs Principle Component Analysis on input image and adjusts it
   randomly, simluating different lighting intensities.
   Args:
     image: Input image matrix.
+    stddev: The standard deviation of the random scale variable.
   Return:
     Adjusted image.
   """
+  # Scale between 0 and 1.
+  image = image.astype("float32") / 255.0
+
   # Reshape image.
-  reshaped_image = np.reshape(image, (224 * 224, 3))
+  num_pixels = image.shape[0] * image.shape[1]
+  reshaped_image = np.reshape(image, (num_pixels, 3))
   # Find the covariance.
-  cov = np.cov(reshaped_image, rowvar=0)
+  cov = np.cov(reshaped_image, rowvar=False)
+  print cov
   # Eigenvalues and vectors.
   eigvals, eigvecs = np.linalg.eigh(cov)
 
   # Pick random gaussian values.
-  a = np.random.normal(0, 0.1, size=(3,))
+  alpha = np.random.normal(0, stddev, size=(3,))
 
-  scaled = eigvals * a
+  scaled = eigvals * alpha
   delta = np.dot(eigvecs, scaled.T)
-  return np.add(delta, scaled)
+  transformed = image + delta
+
+  # Convert back to ints.
+  transformed *= 255.0
+  transformed = np.clip(transformed, 0, 255)
+  return transformed.astype("uint8")
+
+def jitter(image, stddev=0.1):
+  """ Add some random noise to the image.
+  Args:
+    image: Input image matrix.
+    stddev: The standard deviation of the noise. """
+  # Generate noise.
+  noise = np.random.normal(1.0, stddev, size=image.shape)
+  noisy = image.astype("float32") * noise
+
+  # Convert back to ints.
+  noisy = np.clip(noisy, 0, 255)
+  return noisy.astype("uint8")
