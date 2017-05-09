@@ -40,26 +40,38 @@ def extract_patches(image, patch_shape, flip=True):
 
   return ret
 
-def pca(image, stddev=0.1):
+def calc_pca_cov(images):
+  """ Calculates the covariance for a set of images.
+  This is done as a way to speed up PCA.
+  Args:
+    images: The images to calculate the covariance of.
+  Returns:
+    The eigenvalues and eigenvectors of the covariance. """
+  # Scale between 0 and 1.
+  images = images.astype("float32") / 255.0
+
+  # Reshape the images.
+  num_pixels = images.shape[0] * images.shape[1] * images.shape[2]
+  reshaped_images = np.reshape(images, (num_pixels, 3))
+  # Find the covariance.
+  cov = np.cov(reshaped_images, rowvar=False)
+
+  # Eigenvalues and eigenvectors.
+  return np.linalg.eigh(cov)
+
+def pca(image, eigvals, eigvecs, stddev=25):
   """ Performs Principle Component Analysis on input image and adjusts it
   randomly, simluating different lighting intensities.
   Args:
     image: Input image matrix.
+    eigvals: The eigenvalues to use.
+    eigvects: The eigenvectors to use.
     stddev: The standard deviation of the random scale variable.
   Return:
     Adjusted image.
   """
-  # Scale between 0 and 1.
-  image = image.astype("float32") / 255.0
-
-  # Reshape image.
-  num_pixels = image.shape[0] * image.shape[1]
-  reshaped_image = np.reshape(image, (num_pixels, 3))
-  # Find the covariance.
-  cov = np.cov(reshaped_image, rowvar=False)
-  print cov
-  # Eigenvalues and vectors.
-  eigvals, eigvecs = np.linalg.eigh(cov)
+  if not stddev:
+    return image
 
   # Pick random gaussian values.
   alpha = np.random.normal(0, stddev, size=(3,))
@@ -69,7 +81,6 @@ def pca(image, stddev=0.1):
   transformed = image + delta
 
   # Convert back to ints.
-  transformed *= 255.0
   transformed = np.clip(transformed, 0, 255)
   return transformed.astype("uint8")
 
@@ -78,6 +89,9 @@ def jitter(image, stddev=0.1):
   Args:
     image: Input image matrix.
     stddev: The standard deviation of the noise. """
+  if not stddev:
+    return image
+
   # Generate noise.
   noise = np.random.normal(1.0, stddev, size=image.shape)
   noisy = image.astype("float32") * noise

@@ -20,8 +20,8 @@ class _DatasetBase(object):
   randomly from. """
 
   def __init__(self, images, disk_caches, batch_size, image_shape,
-               patch_shape=None, patch_flip=True, pca_stddev=0.1,
-               jitter_stddev=0.1, preload_batches=1):
+               patch_shape=None, patch_flip=True, pca_stddev=25,
+               jitter_stddev=0, preload_batches=1):
     """
     Args:
       images: The list of images that makes up this dataset. The list should
@@ -78,7 +78,26 @@ class _DatasetBase(object):
     self._pca_stddev = pca_stddev
     self._jitter_stddev = jitter_stddev
 
+    # Calculated eigenvalues and eigenvectors for PCA.
+    self._eigvals = None
+    self._eigvecs = None
+
     logger.info("Have %d total images in database." % (len(self.__images)))
+
+  def __get_batch_and_update_pca(self):
+    """ Gets the current batch from the buffer, and updates the PCA state if
+    needed.
+    Returns:
+      The current batch from the buffer. """
+    batch, labels, names = self._mem_buffer.get_batch()
+
+    # Update PCA if needed.
+    if self._eigvals is None:
+      logger.debug("Calculating PCA state...")
+      self._eigvals, self._eigvecs = data_augmentation.calc_pca_cov(batch)
+      logger.debug("Done calculating PCA state.")
+
+    return batch, labels, names
 
   def _pick_random_image(self):
     """ Picks a random image from our database.
@@ -166,7 +185,7 @@ class _DatasetBase(object):
     logger.debug("Cache hits: %d, Hit rate: %f" % (total_cache_hits,
                                                    self.__cache_hit_rate))
 
-    return self._mem_buffer.get_batch(), to_remove
+    return self.__get_batch_and_update_pca(), to_remove
 
   def get_sequential_batch(self):
     """ Loads images sequentially from the cache instead of picking a random
@@ -215,7 +234,7 @@ class _DatasetBase(object):
       else:
         loaded_nothing = False
 
-    return self._mem_buffer.get_batch()
+    return self.__get_batch_and_update_pca()
 
   def get_specific_batch(self, images):
     """ Loads a set of specified images and returns them as a batch.
@@ -235,7 +254,7 @@ class _DatasetBase(object):
     for img_id, images in loaded.iteritems():
       self._buffer_image(images, img_id)
 
-    return self._mem_buffer.get_batch()
+    return self.__get_batch_and_update_pca()
 
   def __merge_image_maps(self, base_image_map, new_image_map):
     """ Merges two images maps, of the variety returned by cache mutiple-get
@@ -359,7 +378,10 @@ class _DatasetBase(object):
     # It's going to come as a list, but should have only one item.
     image = image[0]
 
-    image = data_augmentation.pca(image, stddev=self._pca_stddev)
+    if self._eigvals is not None:
+      # They may not be calculated yet...
+      image = data_augmentation.pca(image, self._eigvals, self._eigvecs,
+                                    stddev=self._pca_stddev)
     image = data_augmentation.jitter(image, stddev=self._jitter_stddev)
 
     # Select a patch.
@@ -494,7 +516,10 @@ class PatchedDataset(_DatasetBase):
     # It will come as a list, but we should have only one image.
     image = image[0]
 
-    image = data_augmentation.pca(image, stddev=self._pca_stddev)
+    if self._eigvals is not None:
+      # They may not be calculated yet...
+      image = data_augmentation.pca(image, self._eigvals, self._eigvecs,
+                                    stddev=self._pca_stddev)
     image = data_augmentation.jitter(image, stddev=self._jitter_stddev)
 
     # Add all the patches.
@@ -564,7 +589,11 @@ class LinkedDataset(_DatasetBase):
 
     transformed_images = []
     for image in reshaped_images:
-      transformed_image = data_augmentation.pca(image, stddev=self._pca_stddev)
+      if self._eigvals is not None:
+        # They may not be calculated yet...
+        transformed_image = data_augmentation.pca(image, self._eigvals,
+                                                  self._eigvecs,
+                                                  stddev=self._pca_stddev)
       transformed_image = data_augmentation.jitter(image,
                                                    stddev=self._jitter_stddev)
       transformed_images.append(transformed_image)

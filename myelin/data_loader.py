@@ -64,7 +64,7 @@ class DataManagerLoader(Loader):
 
   def __init__(self, batch_size, load_batches, image_shape, cache_location,
                dataset_location, patch_shape=None, patch_flip=True,
-               link_with=[], pca_stddev=0.1, jitter_stddev=0.1):
+               link_with=[], pca_stddev=25, jitter_stddev=0):
     """
     Args:
       batch_size: How many images are in each batch.

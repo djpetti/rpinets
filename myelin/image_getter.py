@@ -14,7 +14,7 @@ class ImageGetter(object):
   def __init__(self, cache_location, batch_size, image_shape,
                preload_batches=1, test_percentage=0.1,
                load_datasets_from=None, patch_shape=None, patch_flip=True,
-               link_with=[], pca_stddev=0.1, jitter_stddev=0.1):
+               link_with=[], pca_stddev=25, jitter_stddev=0):
     """
     Args:
       cache_location: Where to cache downloaded images. Will be created if it
