@@ -287,7 +287,7 @@ class DataManagerLoader(Loader):
       start_index = i * section_size
       end_index = start_index + section_size
       section_mean = np.mean(image_buffer[start_index:end_index])
-      section_mean = section_mean.astype("float32")
+      section_mean = section_mean.astype("uint8")
 
       buffer_means.append(section_mean)
 
@@ -398,8 +398,8 @@ class DataManagerLoader(Loader):
     self.__train_buffer_full.acquire()
     logger.info("Got raw training data.")
 
-    # Create a converted copy of the training data.
-    training_buffer = self._training_buffer.astype("float32")
+    # Create a copy of the training data.
+    training_buffer = np.copy(self._training_buffer)
     self.__subtract_section_means(training_buffer, self._training_buffer_mean)
     labels = self._training_labels[:]
     # Allow it to load another batch.
@@ -413,8 +413,8 @@ class DataManagerLoader(Loader):
     self.__test_buffer_full.acquire()
     logger.info("Got raw testing data.")
 
-    # Create a converted copy of the testing data.
-    testing_buffer = self._testing_buffer.astype("float32")
+    # Create a copy of the testing data.
+    testing_buffer = np.copy(self._testing_buffer)
     self.__subtract_section_means(testing_buffer, self._testing_buffer_mean)
 
     if (self._patch_shape and not self.__link_with):
