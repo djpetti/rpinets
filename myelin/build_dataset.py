@@ -24,15 +24,30 @@ def _process_label(label, path, image_list):
   Args:
     label: The name of the label.
     path: The base path where all the label directories are.
-    image_list: The list containing tuples of the lable, name, and path
+    image_list: The list containing tuples of the label, name, and path
     for all the images loaded so far. This will be added to. """
   print "Processing label: %s" % (label)
 
   label_path = os.path.join(path, label)
 
   for image in os.listdir(label_path):
-    # Load the image from the disk.
+    # Add the image.
     image_path = os.path.join(label_path, image)
+    image_list.append((label, image, image_path))
+
+def _process_regression(path, image_list):
+  """ Process images for regression. The label of each image is taken as the
+  filename, without the extension.
+  Args:
+    path: The path to the images.
+    image_list: The list containing tubles of the label, name, and path for all
+                the images loaded so far. This will be added to. """
+  for image in os.listdir(path):
+    # Extract the label.
+    label = image.split(".")[0]
+
+    # Add the image.
+    image_path = os.path.join(path, image)
     image_list.append((label, image, image_path))
 
 def _build_dataset_and_cache(dataset_images, disk_cache, size, offset,
@@ -144,10 +159,12 @@ def _sort_from_existing_cache(map_path, unsorted_images):
 
   return ordered
 
-def collect_dataset_images(path):
+def collect_dataset_images(path, regression=False):
   """ Collects two lists of the images in the training and testing sets.
   Args:
     path: The location of the dataset.
+    regression: Whether we are using regression. If so, we won't look for images
+                broken up into discrete categories.
   Returns: A list of the images in the dataset. """
   print "Building dataset from images at %s..." % (path)
 
@@ -157,27 +174,32 @@ def collect_dataset_images(path):
     sys.exit(1)
 
   dataset_images = []
-  for label in os.listdir(path):
-    label_path = os.path.join(path, label)
-    if not os.path.isdir(label_path):
-      print "WARNING: Skipping extraneous item: '%s'" % (label_path)
-      continue
+  if not regression:
+    for label in os.listdir(path):
+      label_path = os.path.join(path, label)
+      if not os.path.isdir(label_path):
+        print "WARNING: Skipping extraneous item: '%s'" % (label_path)
+        continue
 
-    # Read the contents of the directory.
-    _process_label(label, path, dataset_images)
+      # Read the contents of the directory.
+      _process_label(label, path, dataset_images)
+
+  if regression:
+    _process_regression(path, dataset_images)
 
   return dataset_images
 
-def divide_sets(path, test_fraction=0.1):
+def divide_sets(path, test_fraction=0.1, regression=False):
   """ Divides a set of images into a training set and testing set.
   Args:
     path: The path to the image directory. This should contain folders for
               each label.
     test_fraction: What fraction of the images should be used for a test set.
+    regression: Whether we are doing a regression task.
   Returns: The list of training images, and the list of testing images.
   """
   # First, we'll load everything, and then split it later.
-  all_images = collect_dataset_images(path)
+  all_images = collect_dataset_images(path, regression=regression)
 
   print "Generating new train/test split."
 
@@ -193,7 +215,7 @@ def divide_sets(path, test_fraction=0.1):
   return (train_images, test_images)
 
 def convert_dataset(location, size, output, seed, do_split=False,
-                    offset=(0, 0), link_path=None):
+                    offset=(0, 0), link_path=None, regression=False):
   """ Converts a dataset to a format that's usable by data_manager.
   Args:
     location: The location of the dataset to convert.
@@ -203,8 +225,10 @@ def convert_dataset(location, size, output, seed, do_split=False,
     batches.
     do_split: Whether to generate a new train/test split or use an existing one.
     offset: Optional offset to use for width and height when resizing the image.
-    link_path: Optinal existing cache_map file. If provided, it will only
+    link_path: Optional existing cache_map file. If provided, it will only
                generate a cache in the same ordering as the one indicated.
+    regression: Whether we're doing a regression task and the images are not in
+                discrete categories.
   """
   random.seed(seed)
 
@@ -214,7 +238,7 @@ def convert_dataset(location, size, output, seed, do_split=False,
 
   if link_path:
     # Skip dataset building entirely and just build the cache.
-    all_images = collect_dataset_images(location)
+    all_images = collect_dataset_images(location, regression=regression)
     _build_dataset_and_cache(all_images, disk_cache, size, offset,
                              no_dataset=True, link_to=link_path)
 
@@ -225,12 +249,12 @@ def convert_dataset(location, size, output, seed, do_split=False,
     train_path = os.path.join(location, "train")
     test_path = os.path.join(location, "test")
 
-    train_images = collect_dataset_images(train_path)
-    test_images = collect_dataset_images(test_path)
+    train_images = collect_dataset_images(train_path, regression=regression)
+    test_images = collect_dataset_images(test_path, regression=regression)
 
   else:
     # We'll have to generate a train/test split.
-    train_images, test_images = divide_sets(location)
+    train_images, test_images = divide_sets(location, regression=regression)
 
   train_set = _build_dataset_and_cache(train_images, disk_cache, size, offset)
   test_set = _build_dataset_and_cache(test_images, disk_cache, size, offset)
@@ -264,12 +288,14 @@ def main():
                       help="Specify random seed for batch shuffling.")
   parser.add_argument("-l", "--link", default=None,
                       help="Path to a cache_map file that we should link to.")
+  parser.add_argument("-g", "--regression", action="store_true",
+                      help="Whether to generate a regression dataset.")
   args = parser.parse_args()
 
   convert_dataset(args.dataset, (args.width, args.height), args.output,
                   args.random_seed, do_split=args.split_train_test,
                   offset=(args.offset_width, args.offset_height),
-                  link_path=args.link)
+                  link_path=args.link, regression=args.regression)
 
 
 if __name__ == "__main__":
