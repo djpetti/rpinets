@@ -65,9 +65,8 @@ class DiskCache(Cache):
     if not os.path.exists(self.__location):
       os.mkdir(self.__location)
 
-    # Maps label names to the names of images in them. Each value is itself a
-    # dictionary that maps the image name to its offset in the cache file.
-    self.__labels = {}
+    # Maps IDs of images to their offsets and sizes in the cache file.
+    self.__img_ids = {}
     # Maps offsets in the cache file to IDs of images that are there.
     self.__offsets = {}
     # The current location of free space within the cache file.
@@ -89,7 +88,7 @@ class DiskCache(Cache):
     # Write out the data map file.
     cache_map_location = os.path.join(self.__location, "cache_map.pkl")
     map_file = open(cache_map_location, "wb")
-    pickle.dump((self.__labels, self.__offsets, self.__free_start,
+    pickle.dump((self.__img_ids, self.__offsets, self.__free_start,
                  self.__free_end), map_file)
     map_file.close()
 
@@ -140,7 +139,7 @@ class DiskCache(Cache):
     if os.path.exists(cache_map_location):
       logger.debug("Loading %s..." % (cache_map_location))
       cache_map_file = file(cache_map_location, "rb")
-      self.__labels, self.__offsets, self.__free_start, self.__free_end \
+      self.__img_ids, self.__offsets, self.__free_start, self.__free_end \
           = pickle.load(cache_map_file)
       cache_map_file.close()
 
@@ -185,20 +184,14 @@ class DiskCache(Cache):
     label, number = utils.split_img_id(wnid)
 
     # Decrease cache size.
-    _, image_size = self.__labels[label][number]
+    _, image_size = self.__img_ids[wnid]
 
     # Remove it from various data structures.
-    self.__labels[label].pop(number)
+    self.__img_ids.pop(wnid)
     self.__offsets.pop(image_offset)
 
     # Update the free section counters.
     self.__remove_image_data(image_size)
-
-  def __add_label(self, name):
-    """ Adds a new label to the cache.
-    Args:
-      name: The name of the label. """
-    self.__labels[name] = {}
 
   def add(self, image, name, label):
     """ Adds a new image to the cache. If the label is not known, it
@@ -207,13 +200,10 @@ class DiskCache(Cache):
       image: The image data to add.
       name: The name of the image. Should be unique within the label.
       label: The image label. """
-    if label not in self.__labels:
-      logger.debug("Adding new label to cache: %s", label)
-      self.__add_label(label)
-
-    if name in self.__labels[label]:
+    img_id = utils.make_img_id(label, name)
+    if img_id in self.__img_ids:
       raise ValueError("Attempt to add duplicate image %s." % \
-                       utils.make_img_id(label, name))
+                       img_id)
 
     # Compress the image for storage.
     compressed = cv2.imencode(self.__extension, image)[1]
@@ -249,8 +239,8 @@ class DiskCache(Cache):
       self.__total_space_used += len(compressed)
 
     logger.debug("Wrote image at offset %d." % (wrote_at))
-    self.__labels[label][name] = (wrote_at, len(compressed))
-    self.__offsets[wrote_at] = utils.make_img_id(label, name)
+    self.__img_ids[img_id] = (wrote_at, len(compressed))
+    self.__offsets[wrote_at] = img_id
 
     # Make sure we stay within the size constraint.
     self.__maintain_size()
@@ -264,7 +254,8 @@ class DiskCache(Cache):
     Returns: The image data, or None if the image (or label) doesn't exist in
              the cache. """
     # Get the image offset and size.
-    offset, size = self.__labels[label][name]
+    img_id = utils.make_img_id(label, name)
+    offset, size = self.__img_ids[img_id]
 
     # Read and decode the image data.
     self.__data_file.seek(offset)
@@ -281,12 +272,8 @@ class DiskCache(Cache):
       name: The name of the image to check.
     Returns:
       True if the image is in the cache, False otherwise. """
-    if label not in self.__labels:
-      return False
-    if name not in self.__labels[label]:
-      return False
-
-    return True
+    img_id = utils.make_img_id(label, name)
+    return img_id in self.__img_ids
 
   def get(self, synset, name):
     """ Gets an image from the cache.
@@ -320,9 +307,11 @@ class DiskCache(Cache):
         True if image1 has a smaller offset than image2, False otherwise. """
       label1, name1 = image1_pair
       label2, name2 = image2_pair
+      img_id1 = utils.make_img_id(label1, name1)
+      img_id2 = utils.make_img_id(label2, name2)
 
-      offset1, _ = self.__labels[label1][name1]
-      offset2, _ = self.__labels[label2][name2]
+      offset1, _ = self.__img_ids[img_id1]
+      offset2, _ = self.__img_ids[img_id2]
 
       return offset1 < offset2
 
@@ -385,7 +374,8 @@ class DiskCache(Cache):
     total_size = os.path.getsize(cache_data_location)
 
     # Compute the offsets for the chunk of the file we need to read.
-    start_offset, size = self.__labels[start_label][start_name]
+    start_img_id = utils.make_img_id(start_label, start_name)
+    start_offset, size = self.__img_ids[start_img_id]
     end_offset = start_offset
     num_loaded = 0
     to_load = []
@@ -397,8 +387,7 @@ class DiskCache(Cache):
         raise RuntimeError("Unexpected free space in cache. Please repair the \
                             cache.")
       img_id = self.__offsets[end_offset]
-      label, name = utils.split_img_id(img_id)
-      end_offset, size = self.__labels[label][name]
+      end_offset, size = self.__img_ids[img_id]
 
       old_end_offset = end_offset
       end_offset = end_offset + size
@@ -476,8 +465,7 @@ class DiskCache(Cache):
     min_offset = sys.maxint
     first_image = None
     for img_id in use_only:
-      label, name = utils.split_img_id(img_id)
-      offset, _ = self.__labels[label][name]
+      offset, _ = self.__img_ids[img_id]
 
       if offset < min_offset:
         min_offset = offset
