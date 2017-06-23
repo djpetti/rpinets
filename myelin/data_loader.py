@@ -64,7 +64,8 @@ class DataManagerLoader(Loader):
 
   def __init__(self, batch_size, load_batches, image_shape, cache_location,
                dataset_location, patch_shape=None, patch_flip=True,
-               link_with=[], pca_stddev=25, jitter_stddev=0):
+               link_with=[], pca_stddev=25, jitter_stddev=0,
+               raw_labels=False):
     """
     Args:
       batch_size: How many images are in each batch.
@@ -80,7 +81,8 @@ class DataManagerLoader(Loader):
       link_with: List of external cache directories to link with when we load
                  datasets.
       pca_stddev: The standard deviation for PCA.
-      jitter_stddev: The standard deviation for jitter. """
+      jitter_stddev: The standard deviation for jitter.
+      raw_labels: If true, it returns raw labels instead of numerical mappings. """
     super(DataManagerLoader, self).__init__()
 
     self._image_shape = image_shape
@@ -89,6 +91,7 @@ class DataManagerLoader(Loader):
     self._patch_shape = patch_shape
     self._patch_flip = patch_flip
     self.__link_with = link_with
+    self.__raw_labels = raw_labels
 
     self._pca_stddev = pca_stddev
     self._jitter_stddev = jitter_stddev
@@ -319,7 +322,11 @@ class DataManagerLoader(Loader):
 
     self._training_names = names
     # Convert labels.
-    self._training_labels = self.__convert_labels_to_ints(labels)
+    if not self.__raw_labels:
+      self._training_labels = self.__convert_labels_to_ints(labels)
+    else:
+      # Use the raw ones.
+      self._training_labels = labels
 
     self.__train_cpu_lock.release()
 
@@ -334,7 +341,11 @@ class DataManagerLoader(Loader):
 
     self._testing_names = names
     # Convert labels.
-    self._testing_labels = self.__convert_labels_to_ints(labels)
+    if not self.__raw_labels:
+      self._testing_labels = self.__convert_labels_to_ints(labels)
+    else:
+      # Use the raw ones.
+      self._testing_labels = labels
 
     self.__test_cpu_lock.release()
 

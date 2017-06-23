@@ -44,7 +44,7 @@ def _process_regression(path, image_list):
                 the images loaded so far. This will be added to. """
   for image in os.listdir(path):
     # Extract the label.
-    label = image.split(".")[0]
+    label = os.path.splitext(image)[0]
 
     # Add the image.
     image_path = os.path.join(path, image)
