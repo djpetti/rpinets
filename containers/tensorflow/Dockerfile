@@ -1,4 +1,4 @@
-FROM gcr.io/tensorflow/tensorflow:latest-devel-gpu
+FROM gw000/keras:2.1.4-py2-tf-gpu
 MAINTAINER Daniel Petti
 
 # Install packages that we need to run code.
